@@ -1,0 +1,6 @@
+node_modules/
+
+# The built userscript is committed so it can be installed from the repo, and
+# `pnpm run check` fails when it is stale. Re-included because a common global
+# gitignore excludes dist/.
+!dist/

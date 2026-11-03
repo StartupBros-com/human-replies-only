@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "x-slop-hide",
+  "version": "0.1.0",
+  "description": "Hides x.com posts by accounts on a self-updating AI-reply spam list. Browser-only: no X API, nothing is muted or blocked.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": ["https://clankwall.vogel.dev/*"],
+  "background": { "service_worker": "src/background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://x.com/*", "https://twitter.com/*", "https://mobile.x.com/*", "https://mobile.twitter.com/*"],
+      "js": ["src/lib.js", "src/content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": { "default_title": "x-slop-hide", "default_popup": "src/popup.html" }
+}
