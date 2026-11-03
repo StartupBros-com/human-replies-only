@@ -33,6 +33,10 @@
   const DEFAULTS = Object.freeze({
     feedUrl: 'https://clankwall.vogel.dev/api/usernames.txt',
     refreshMinutes: 360,
+    // After a failed attempt, wait this long before trying again.
+    retryMinutes: 30,
+    // How often an open userscript tab checks whether the list is due.
+    checkMinutes: 15,
     timeoutMs: 20000,
     maxBytes: 1000000,
     maxHandles: 50000,
@@ -139,6 +143,27 @@
     return Object.assign({}, base, { lastAttemptAt: now, lastError: result.reason });
   }
 
+  // Commit a refresh against the record stored right now, not the one read
+  // before the fetch. `seq` counts successful commits; startSeq is the value
+  // read when the refresh began. If a newer refresh succeeded meanwhile, this
+  // result is stale and is dropped (null: write nothing), so an older failed
+  // or older successful fetch can never overwrite a newer list.
+  function commitRecord(latest, result, url, startSeq, now) {
+    const seq = (latest && latest.seq) || 0;
+    if (seq > (startSeq || 0)) return null;
+    const rec = nextRecord(latest, result, url, now);
+    rec.seq = result.ok ? seq + 1 : seq;
+    return rec;
+  }
+
+  // Due for a refresh: the list is older than the refresh interval, and the
+  // last attempt (a failure, if the list is old) is older than the retry gap.
+  function isRefreshDue(rec, now) {
+    if (!isDue(rec && rec.fetchedAt, now, DEFAULTS.refreshMinutes)) return false;
+    const last = rec && rec.lastAttemptAt;
+    return !last || now - last >= DEFAULTS.retryMinutes * 60 * 1000;
+  }
+
   function parseAllowlist(text) {
     const out = new Set();
     for (const tok of String(text || '').split(/[\s,]+/)) {
@@ -200,6 +225,8 @@
     isDue,
     fetchList,
     nextRecord,
+    commitRecord,
+    isRefreshDue,
     parseAllowlist,
     insideQuoteCard,
     authorHandleOf,
@@ -213,7 +240,7 @@
 // ---- src/userscript-adapter.js ----
 // Userscript adapter: supplies state to content.js through Greasemonkey APIs
 // when the extension is not installed. Included only in dist/x-slop-hide.user.js.
-/* global GM_getValue, GM_setValue, GM_xmlhttpRequest, GM_registerMenuCommand, GM_addValueChangeListener */
+/* global GM_getValue, GM_setValue, GM_xmlhttpRequest, GM_registerMenuCommand, GM_addValueChangeListener, setInterval */
 (function () {
   'use strict';
   const L = globalThis.XSlopHide;
@@ -249,14 +276,24 @@
     });
   }
 
-  async function refresh(force) {
+  // One refresh at a time per tab. Tabs share GM storage, so the commit
+  // re-reads the stored list and drops a result a newer refresh superseded.
+  let inflight = null;
+  function refresh(force) {
+    if (inflight) return inflight;
     const s = read();
     const prev = s.list;
-    if (!force && !L.isDue(prev && prev.fetchedAt, Date.now(), L.DEFAULTS.refreshMinutes)) return;
+    if (!force && !L.isRefreshDue(prev, Date.now())) return Promise.resolve();
     const url = (s.settings && s.settings.feedUrl) || L.DEFAULTS.feedUrl;
-    const result = await L.fetchList({ url, fetchImpl: gmFetch, prevHandles: prev && prev.handles });
-    GM_setValue(K.list, L.nextRecord(prev, result, url, Date.now()));
-    notify();
+    const startSeq = (prev && prev.seq) || 0;
+    inflight = L.fetchList({ url, fetchImpl: gmFetch, prevHandles: prev && prev.handles })
+      .then((result) => {
+        const record = L.commitRecord(GM_getValue(K.list, null), result, url, startSeq, Date.now());
+        if (record) GM_setValue(K.list, record);
+        notify();
+      })
+      .finally(() => (inflight = null));
+    return inflight;
   }
 
   function patchSettings(patch) {
@@ -284,7 +321,14 @@
       if (next != null) patchSettings({ allowlist: [...L.parseAllowlist(next)].sort().join('\n') });
     });
   }
+  // A tab can stay open for days through in-app navigation: check whether
+  // the list is due on a timer, and again when the tab comes back into view
+  // (background tabs may throttle or suspend timers).
   refresh(false);
+  setInterval(() => refresh(false), L.DEFAULTS.checkMinutes * 60 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refresh(false);
+  });
 })();
 
 // ---- src/content.js ----

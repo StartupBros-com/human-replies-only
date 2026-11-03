@@ -1,6 +1,6 @@
 // Userscript adapter: supplies state to content.js through Greasemonkey APIs
 // when the extension is not installed. Included only in dist/x-slop-hide.user.js.
-/* global GM_getValue, GM_setValue, GM_xmlhttpRequest, GM_registerMenuCommand, GM_addValueChangeListener */
+/* global GM_getValue, GM_setValue, GM_xmlhttpRequest, GM_registerMenuCommand, GM_addValueChangeListener, setInterval */
 (function () {
   'use strict';
   const L = globalThis.XSlopHide;
@@ -36,14 +36,24 @@
     });
   }
 
-  async function refresh(force) {
+  // One refresh at a time per tab. Tabs share GM storage, so the commit
+  // re-reads the stored list and drops a result a newer refresh superseded.
+  let inflight = null;
+  function refresh(force) {
+    if (inflight) return inflight;
     const s = read();
     const prev = s.list;
-    if (!force && !L.isDue(prev && prev.fetchedAt, Date.now(), L.DEFAULTS.refreshMinutes)) return;
+    if (!force && !L.isRefreshDue(prev, Date.now())) return Promise.resolve();
     const url = (s.settings && s.settings.feedUrl) || L.DEFAULTS.feedUrl;
-    const result = await L.fetchList({ url, fetchImpl: gmFetch, prevHandles: prev && prev.handles });
-    GM_setValue(K.list, L.nextRecord(prev, result, url, Date.now()));
-    notify();
+    const startSeq = (prev && prev.seq) || 0;
+    inflight = L.fetchList({ url, fetchImpl: gmFetch, prevHandles: prev && prev.handles })
+      .then((result) => {
+        const record = L.commitRecord(GM_getValue(K.list, null), result, url, startSeq, Date.now());
+        if (record) GM_setValue(K.list, record);
+        notify();
+      })
+      .finally(() => (inflight = null));
+    return inflight;
   }
 
   function patchSettings(patch) {
@@ -71,5 +81,12 @@
       if (next != null) patchSettings({ allowlist: [...L.parseAllowlist(next)].sort().join('\n') });
     });
   }
+  // A tab can stay open for days through in-app navigation: check whether
+  // the list is due on a timer, and again when the tab comes back into view
+  // (background tabs may throttle or suspend timers).
   refresh(false);
+  setInterval(() => refresh(false), L.DEFAULTS.checkMinutes * 60 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refresh(false);
+  });
 })();

@@ -106,6 +106,32 @@ test('nextRecord keeps the previous list and fetchedAt on failure', () => {
   assert.equal(first.lastError, 'offline');
 });
 
+test('commitRecord drops a result that a newer success superseded', () => {
+  const latest = { handles: ['a', 'b'], fetchedAt: 300, source: 's', lastAttemptAt: 300, lastError: null, seq: 2 };
+  // Started at seq 1, but seq 2 committed meanwhile: write nothing.
+  assert.equal(lib.commitRecord(latest, { ok: false, reason: 'HTTP 503' }, 's', 1, 400), null);
+  assert.equal(lib.commitRecord(latest, { ok: true, handles: ['z'] }, 's', 1, 400), null);
+  // Nothing newer: a failure keeps the stored list, a success replaces it and bumps seq.
+  const failed = lib.commitRecord(latest, { ok: false, reason: 'HTTP 503' }, 's', 2, 400);
+  assert.deepEqual(failed, { ...latest, lastAttemptAt: 400, lastError: 'HTTP 503' });
+  const ok = lib.commitRecord(latest, { ok: true, handles: ['c'] }, 's', 2, 400);
+  assert.deepEqual(ok, { handles: ['c'], fetchedAt: 400, source: 's', lastAttemptAt: 400, lastError: null, seq: 3 });
+  // A record stored by 0.1.0 has no seq; it counts as 0.
+  assert.equal(lib.commitRecord({ handles: ['a'], fetchedAt: 1, source: 's' }, { ok: true, handles: ['b'] }, 's', 0, 5).seq, 1);
+  assert.equal(lib.commitRecord(null, { ok: false, reason: 'offline' }, 's', 0, 5).seq, 0);
+});
+
+test('isRefreshDue waits out the retry gap after a failed attempt', () => {
+  const min = 60 * 1000;
+  const hour = 60 * min;
+  assert.equal(lib.isRefreshDue(null, 5), true);
+  assert.equal(lib.isRefreshDue({ fetchedAt: 10 * hour, lastAttemptAt: 10 * hour }, 15 * hour), false);
+  assert.equal(lib.isRefreshDue({ fetchedAt: 10 * hour, lastAttemptAt: 10 * hour }, 16 * hour), true);
+  // The list is stale and the last attempt failed: wait 30 minutes between tries.
+  assert.equal(lib.isRefreshDue({ fetchedAt: 0, lastAttemptAt: 20 * hour }, 20 * hour + 29 * min), false);
+  assert.equal(lib.isRefreshDue({ fetchedAt: 0, lastAttemptAt: 20 * hour }, 20 * hour + 30 * min), true);
+});
+
 test('parseAllowlist accepts newlines, commas, spaces and @', () => {
   assert.deepEqual([...lib.parseAllowlist('@Grok, kaibgr\n  bad handle!! x_y')].sort(), ['bad', 'grok', 'kaibgr', 'x_y']);
   assert.equal(lib.parseAllowlist(undefined).size, 0);

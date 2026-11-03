@@ -11,18 +11,31 @@ async function settings() {
   return o[K.settings] || {};
 }
 
-async function refresh() {
+const stored = async () => (await chrome.storage.local.get(K.list))[K.list];
+
+// Install, alarm, startup and popup triggers can overlap. They share one
+// in-flight refresh, so only one fetch and one write happen at a time.
+let inflight = null;
+function refresh() {
+  if (!inflight) inflight = runRefresh().finally(() => (inflight = null));
+  return inflight;
+}
+
+async function runRefresh() {
   const s = await settings();
   const url = s.feedUrl || L.DEFAULTS.feedUrl;
-  const prev = (await chrome.storage.local.get(K.list))[K.list];
+  const prev = await stored();
+  const startSeq = (prev && prev.seq) || 0;
   const result = await L.fetchList({ url, fetchImpl: fetch, prevHandles: prev && prev.handles });
-  const record = L.nextRecord(prev, result, url, Date.now());
-  await chrome.storage.local.set({ [K.list]: record });
-  return { ok: result.ok, reason: result.reason || null, count: record.handles.length };
+  const latest = await stored();
+  const record = L.commitRecord(latest, result, url, startSeq, Date.now());
+  if (record) await chrome.storage.local.set({ [K.list]: record });
+  const kept = record || latest;
+  return { ok: result.ok, reason: result.reason || null, count: kept ? kept.handles.length : 0 };
 }
 
 async function refreshIfDue() {
-  const prev = (await chrome.storage.local.get(K.list))[K.list];
+  const prev = await stored();
   if (L.isDue(prev && prev.fetchedAt, Date.now(), L.DEFAULTS.refreshMinutes)) await refresh();
 }
 

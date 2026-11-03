@@ -14,6 +14,10 @@
   const DEFAULTS = Object.freeze({
     feedUrl: 'https://clankwall.vogel.dev/api/usernames.txt',
     refreshMinutes: 360,
+    // After a failed attempt, wait this long before trying again.
+    retryMinutes: 30,
+    // How often an open userscript tab checks whether the list is due.
+    checkMinutes: 15,
     timeoutMs: 20000,
     maxBytes: 1000000,
     maxHandles: 50000,
@@ -120,6 +124,27 @@
     return Object.assign({}, base, { lastAttemptAt: now, lastError: result.reason });
   }
 
+  // Commit a refresh against the record stored right now, not the one read
+  // before the fetch. `seq` counts successful commits; startSeq is the value
+  // read when the refresh began. If a newer refresh succeeded meanwhile, this
+  // result is stale and is dropped (null: write nothing), so an older failed
+  // or older successful fetch can never overwrite a newer list.
+  function commitRecord(latest, result, url, startSeq, now) {
+    const seq = (latest && latest.seq) || 0;
+    if (seq > (startSeq || 0)) return null;
+    const rec = nextRecord(latest, result, url, now);
+    rec.seq = result.ok ? seq + 1 : seq;
+    return rec;
+  }
+
+  // Due for a refresh: the list is older than the refresh interval, and the
+  // last attempt (a failure, if the list is old) is older than the retry gap.
+  function isRefreshDue(rec, now) {
+    if (!isDue(rec && rec.fetchedAt, now, DEFAULTS.refreshMinutes)) return false;
+    const last = rec && rec.lastAttemptAt;
+    return !last || now - last >= DEFAULTS.retryMinutes * 60 * 1000;
+  }
+
   function parseAllowlist(text) {
     const out = new Set();
     for (const tok of String(text || '').split(/[\s,]+/)) {
@@ -181,6 +206,8 @@
     isDue,
     fetchList,
     nextRecord,
+    commitRecord,
+    isRefreshDue,
     parseAllowlist,
     insideQuoteCard,
     authorHandleOf,
