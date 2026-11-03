@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>x-slop-hide</title>
+<style>
+  :root { color-scheme: light dark; --muted: #6b7280; --bad: #b91c1c; }
+  body { font: 13px/1.4 system-ui, sans-serif; width: 300px; margin: 12px; }
+  h1 { font-size: 14px; margin: 0 0 8px; }
+  p { margin: 6px 0; }
+  .muted { color: var(--muted); }
+  .bad { color: var(--bad); }
+  label { display: block; margin: 10px 0 4px; }
+  textarea { width: 100%; box-sizing: border-box; font: 12px ui-monospace, monospace; }
+  .row { display: flex; gap: 8px; margin-top: 8px; }
+  button { padding: 4px 10px; }
+</style>
+</head>
+<body>
+<h1>x-slop-hide</h1>
+<p id="list">Loading…</p>
+<p id="err" class="bad" hidden></p>
+<p id="tab" class="muted"></p>
+<label><input type="checkbox" id="paused"> Pause hiding</label>
+<label for="allow">Always show these accounts (one handle per line)</label>
+<textarea id="allow" rows="4" spellcheck="false"></textarea>
+<div class="row">
+  <button id="save">Save</button>
+  <button id="refresh">Refresh list now</button>
+</div>
+<p class="muted">Hides posts in this browser only. Nothing is muted, blocked or sent to X.</p>
+<script src="lib.js"></script>
+<script src="popup.js"></script>
+</body>
+</html>
