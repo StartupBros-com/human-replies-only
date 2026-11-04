@@ -42,13 +42,28 @@ export function runContent(html, { pathname = '/home', state = {} } = {}) {
   const location = { pathname };
   let subscriber = null;
   let current = state;
+  let deliverMutations = null;
+  let observed = null;
+  // linkedom v0.18.15 reports the observed root, not the mutated parent, as
+  // childList target. Tests may deliver a native-shaped record explicitly.
+  // https://github.com/WebReflection/linkedom/blob/v0.18.15/esm/interface/mutation-observer.js#L85-L107
+  class TestObserver extends MutationObserver {
+    constructor(cb) {
+      super(cb);
+      deliverMutations = cb;
+    }
+    observe(target, options) {
+      observed = { target, options };
+      super.observe(target, options);
+    }
+  }
   const adapter = {
     load: () => Promise.resolve(current),
     subscribe(cb) {
       subscriber = cb;
     },
   };
-  const ctx = vm.createContext({ window, document, location, MutationObserver, XSlopHideAdapter: adapter, console });
+  const ctx = vm.createContext({ window, document, location, MutationObserver: TestObserver, XSlopHideAdapter: adapter, console });
   vm.runInContext(src('src/lib.js'), ctx, { filename: 'src/lib.js' });
   vm.runInContext(src('src/content.js'), ctx, { filename: 'src/content.js' });
   const cell = (status) => document.querySelector(`[data-fixture="${status}"]`);
@@ -61,6 +76,8 @@ export function runContent(html, { pathname = '/home', state = {} } = {}) {
       subscriber(next);
     },
     content: ctx.XSlopHideContent,
+    deliverMutations(records) { deliverMutations(records); },
+    observed() { return observed; },
   };
 }
 

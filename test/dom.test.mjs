@@ -110,11 +110,26 @@ test('an empty list hides nothing', async () => {
   assert.equal(t.hidden('1'), false);
 });
 
+// These removal tests use real linkedom nodes but inject native-shaped childList
+// records: linkedom v0.18.15 reports the observed document as their target.
+// Existing addition tests above still exercise linkedom's automatic observer.
+test('observer watches document child lists and href changes', async () => {
+  const t = runContent(page([]), { state: stateWith(LIST) });
+  await tick();
+  assert.equal(t.observed().target, t.document);
+  assert.deepEqual(JSON.parse(JSON.stringify(t.observed().options)), {
+    childList: true, subtree: true, attributes: true, attributeFilter: ['href'],
+  });
+});
+
 test('removing an author block reveals a previously hidden cell without changing historical stats', async () => {
   const t = runContent(page([post({ author: 'kaibgr', status: '1' })]), { state: stateWith(LIST) });
   await tick();
   assert.equal(t.hidden('1'), true);
-  t.document.querySelector('[data-fixture="1"] [data-testid="User-Name"]').remove();
+  const name = t.document.querySelector('[data-fixture="1"] [data-testid="User-Name"]');
+  const parent = name.parentNode;
+  name.remove();
+  t.deliverMutations([{ type: 'childList', target: parent, addedNodes: [], removedNodes: [name] }]);
   await tick();
   assert.equal(t.hidden('1'), false);
   assert.equal(t.content.stats().hiddenNow, 0);
@@ -128,7 +143,10 @@ test('removing a post or its wrapper clears the retained hidden cell', async () 
     await tick();
     const cell = t.document.querySelector('[data-fixture="1"]');
     assert.equal(t.hidden('1'), true);
-    (removeWrapper ? cell.firstElementChild : cell.querySelector('article')).remove();
+    const removed = removeWrapper ? cell.firstElementChild : cell.querySelector('article');
+    const parent = removed.parentNode;
+    removed.remove();
+    t.deliverMutations([{ type: 'childList', target: parent, addedNodes: [], removedNodes: [removed] }]);
     await tick();
     assert.equal(t.hidden('1'), false);
     assert.equal(t.content.stats().hiddenNow, 0);
@@ -141,7 +159,13 @@ test('removing a post or its wrapper clears the retained hidden cell', async () 
 test('removing the last usable profile link reveals the post', async () => {
   const t = runContent(page([post({ author: 'kaibgr', status: '1' })]), { state: stateWith(LIST) });
   await tick();
-  for (const link of t.document.querySelectorAll('[data-fixture="1"] [data-testid="User-Name"] a')) link.remove();
+  const records = [];
+  for (const link of t.document.querySelectorAll('[data-fixture="1"] [data-testid="User-Name"] a')) {
+    const parent = link.parentNode;
+    link.remove();
+    records.push({ type: 'childList', target: parent, addedNodes: [], removedNodes: [link] });
+  }
+  t.deliverMutations(records);
   await tick();
   assert.equal(t.hidden('1'), false);
 });
@@ -149,7 +173,10 @@ test('removing the last usable profile link reveals the post', async () => {
 test('removing an unrelated quote keeps the listed author hidden', async () => {
   const t = runContent(page([post({ author: 'kaibgr', quote: 'human', status: '1' })]), { state: stateWith(LIST) });
   await tick();
-  t.document.querySelector('[data-fixture="1"] [role="link"][tabindex="0"]').remove();
+  const quote = t.document.querySelector('[data-fixture="1"] [role="link"][tabindex="0"]');
+  const parent = quote.parentNode;
+  quote.remove();
+  t.deliverMutations([{ type: 'childList', target: parent, addedNodes: [], removedNodes: [quote] }]);
   await tick();
   assert.equal(t.hidden('1'), true);
 });
@@ -158,8 +185,13 @@ test('same-batch replacement reflects the new author, not the removed article', 
   const t = runContent(page([post({ author: 'kaibgr', status: '1' })]), { state: stateWith(LIST) });
   await tick();
   const cell = t.document.querySelector('[data-fixture="1"]');
-  const replacement = parseHTML(page([post({ author: 'human', status: '2' })])).document.querySelector('article');
-  cell.querySelector('article').replaceWith(replacement);
+  const replacementHolder = t.document.createElement('div');
+  replacementHolder.innerHTML = post({ author: 'human', status: '2' });
+  const replacement = replacementHolder.querySelector('article');
+  const old = cell.querySelector('article');
+  const parent = old.parentNode;
+  old.replaceWith(replacement);
+  t.deliverMutations([{ type: 'childList', target: parent, addedNodes: [replacement], removedNodes: [old] }]);
   await tick();
   assert.equal(t.hidden('1'), false);
   assert.equal(t.content.stats().hiddenPosts, 1);
@@ -169,9 +201,15 @@ test('a listed post added and removed in one batch does not inflate historical s
   const t = runContent(page([]), { state: stateWith(LIST) });
   await tick();
   const timeline = t.document.querySelector('[aria-label="Timeline"]');
-  const transient = parseHTML(page([post({ author: 'frontmostai', status: '2' })])).document.querySelector('[data-fixture="2"]');
+  const holder = t.document.createElement('div');
+  holder.innerHTML = post({ author: 'frontmostai', status: '2' });
+  const transient = holder.querySelector('[data-fixture="2"]');
   timeline.appendChild(transient);
   transient.remove();
+  t.deliverMutations([
+    { type: 'childList', target: timeline, addedNodes: [transient], removedNodes: [] },
+    { type: 'childList', target: timeline, addedNodes: [], removedNodes: [transient] },
+  ]);
   await tick();
   assert.equal(t.content.stats().hiddenNow, 0);
   assert.equal(t.content.stats().hiddenPosts, 0);
@@ -188,6 +226,7 @@ test('a hidden cell emptied while detached is cleared when reinserted in a later
   await tick();
   cell.querySelector('article').remove();
   timeline.appendChild(cell);
+  t.deliverMutations([{ type: 'childList', target: timeline, addedNodes: [cell], removedNodes: [] }]);
   await tick();
   assert.equal(t.hidden('1'), false);
   assert.equal(t.content.stats().hiddenNow, 0);
