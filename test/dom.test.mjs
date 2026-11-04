@@ -109,3 +109,88 @@ test('an empty list hides nothing', async () => {
   await tick();
   assert.equal(t.hidden('1'), false);
 });
+
+test('removing an author block reveals a previously hidden cell without changing historical stats', async () => {
+  const t = runContent(page([post({ author: 'kaibgr', status: '1' })]), { state: stateWith(LIST) });
+  await tick();
+  assert.equal(t.hidden('1'), true);
+  t.document.querySelector('[data-fixture="1"] [data-testid="User-Name"]').remove();
+  await tick();
+  assert.equal(t.hidden('1'), false);
+  assert.equal(t.content.stats().hiddenNow, 0);
+  assert.equal(t.content.stats().hiddenPosts, 1);
+  assert.deepEqual(Array.from(t.content.stats().hiddenAuthors), ['kaibgr']);
+});
+
+test('removing a post or its wrapper clears the retained hidden cell', async () => {
+  for (const removeWrapper of [false, true]) {
+    const t = runContent(page([post({ author: 'kaibgr', status: '1' })]), { state: stateWith(LIST) });
+    await tick();
+    const cell = t.document.querySelector('[data-fixture="1"]');
+    assert.equal(t.hidden('1'), true);
+    (removeWrapper ? cell.firstElementChild : cell.querySelector('article')).remove();
+    await tick();
+    assert.equal(t.hidden('1'), false);
+    assert.equal(t.content.stats().hiddenNow, 0);
+    cell.insertAdjacentHTML('beforeend', '<div data-testid="recommendation">Recommended</div>');
+    await tick();
+    assert.equal(t.hidden('1'), false);
+  }
+});
+
+test('removing the last usable profile link reveals the post', async () => {
+  const t = runContent(page([post({ author: 'kaibgr', status: '1' })]), { state: stateWith(LIST) });
+  await tick();
+  for (const link of t.document.querySelectorAll('[data-fixture="1"] [data-testid="User-Name"] a')) link.remove();
+  await tick();
+  assert.equal(t.hidden('1'), false);
+});
+
+test('removing an unrelated quote keeps the listed author hidden', async () => {
+  const t = runContent(page([post({ author: 'kaibgr', quote: 'human', status: '1' })]), { state: stateWith(LIST) });
+  await tick();
+  t.document.querySelector('[data-fixture="1"] [role="link"][tabindex="0"]').remove();
+  await tick();
+  assert.equal(t.hidden('1'), true);
+});
+
+test('same-batch replacement reflects the new author, not the removed article', async () => {
+  const t = runContent(page([post({ author: 'kaibgr', status: '1' })]), { state: stateWith(LIST) });
+  await tick();
+  const cell = t.document.querySelector('[data-fixture="1"]');
+  const replacement = parseHTML(page([post({ author: 'human', status: '2' })])).document.querySelector('article');
+  cell.querySelector('article').replaceWith(replacement);
+  await tick();
+  assert.equal(t.hidden('1'), false);
+  assert.equal(t.content.stats().hiddenPosts, 1);
+});
+
+test('a listed post added and removed in one batch does not inflate historical stats', async () => {
+  const t = runContent(page([]), { state: stateWith(LIST) });
+  await tick();
+  const timeline = t.document.querySelector('[aria-label="Timeline"]');
+  const transient = parseHTML(page([post({ author: 'frontmostai', status: '2' })])).document.querySelector('[data-fixture="2"]');
+  timeline.appendChild(transient);
+  transient.remove();
+  await tick();
+  assert.equal(t.content.stats().hiddenNow, 0);
+  assert.equal(t.content.stats().hiddenPosts, 0);
+  assert.deepEqual(Array.from(t.content.stats().hiddenAuthors), []);
+});
+
+test('a hidden cell emptied while detached is cleared when reinserted in a later batch', async () => {
+  const t = runContent(page([post({ author: 'kaibgr', status: '1' })]), { state: stateWith(LIST) });
+  await tick();
+  const timeline = t.document.querySelector('[aria-label="Timeline"]');
+  const cell = t.document.querySelector('[data-fixture="1"]');
+  assert.equal(t.hidden('1'), true);
+  cell.remove();
+  await tick();
+  cell.querySelector('article').remove();
+  timeline.appendChild(cell);
+  await tick();
+  assert.equal(t.hidden('1'), false);
+  assert.equal(t.content.stats().hiddenNow, 0);
+  assert.equal(t.content.stats().hiddenPosts, 1);
+  assert.deepEqual(Array.from(t.content.stats().hiddenAuthors), ['kaibgr']);
+});
