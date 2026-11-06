@@ -1,9 +1,14 @@
 // x-slop-hide content script: hides x.com timeline cells whose post author is
-// on the list. Display-only: it never clicks, mutes, blocks or calls an API.
+// on the list. In the user's own tabs it never clicks anything.
+//
+// Muting, when the user has turned it on, happens only in a tab the background
+// worker opened for one job (see runJob below): there it clicks a post's ⋯ and
+// X's own Mute item, then reports back, and the worker closes the tab. It never
+// calls X's API.
 //
 // State comes from an adapter: the extension adapter below (chrome.storage,
 // filled by background.js), or globalThis.XSlopHideAdapter when the userscript
-// build supplies one.
+// build supplies one. The userscript adapter has no jobs, so it only hides.
 (function () {
   'use strict';
   const L = globalThis.XSlopHide;
@@ -16,6 +21,7 @@
   let list = new Set();
   let allow = new Set();
   let paused = false;
+  let muting = false;
   let lastPath = location.pathname;
   const hiddenPosts = new Set(); // distinct posts hidden in this tab
   const hiddenAuthors = new Set();
@@ -40,6 +46,8 @@
     const hide = L.shouldHide(author, { list, allow, owner, paused });
     if (hide) {
       if (cell.getAttribute(ATTR) !== author) cell.setAttribute(ATTR, author);
+      // Seen while browsing: muted ahead of the rest of the list.
+      if (muting && !hiddenAuthors.has(author) && adapter.noteSighting) adapter.noteSighting(author);
       hiddenAuthors.add(author);
       const k = postKey(article);
       if (k) hiddenPosts.add(k);
@@ -109,17 +117,144 @@
     list = new Set((s.list && s.list.handles) || []);
     allow = L.effectiveAllow(s.settings);
     paused = !!(s.settings && s.settings.paused);
+    muting = !!(s.settings && s.settings.muteEnabled);
     rescanAll();
   }
 
+  // Who this tab is logged in as: { me } from the sidebar's profile link,
+  // { login: true } when x.com shows a login button, null while still loading.
+  function whoAmI() {
+    if (document.querySelector('[data-testid="loginButton"]')) return { login: true };
+    const a = document.querySelector('[data-testid="AppTabBar_Profile_Link"]');
+    const m = a && /^\/([A-Za-z0-9_]{1,15})$/.exec(a.getAttribute('href') || '');
+    return m ? { me: m[1].toLowerCase() } : null;
+  }
+
   function stats() {
+    const who = whoAmI();
     return {
       listed: list.size,
       paused,
+      me: (who && who.me) || null,
       hiddenNow: document.querySelectorAll(`[${ATTR}]`).length,
       hiddenPosts: hiddenPosts.size,
       hiddenAuthors: [...hiddenAuthors].sort(),
     };
+  }
+
+  // ------------------------------------------------------------ mute jobs
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const textOf = (el) => (el.textContent || '').replace(/\s+/g, ' ').trim();
+
+  async function waitFor(fn, ms, step) {
+    const end = Date.now() + ms;
+    for (;;) {
+      const v = fn();
+      if (v) return v;
+      if (Date.now() >= end) return null;
+      await sleep(step || 500);
+    }
+  }
+
+  // How long to wait for the page to show who is logged in, a post, or rows.
+  const waitMs = (job) => job.waitMs || 20000;
+
+  // The job's tab must be logged in as the account muting was turned on for.
+  async function wrongAccount(job) {
+    const who = await waitFor(whoAmI, waitMs(job));
+    if (!who) return { status: 'error', reason: 'the page never showed who is logged in' };
+    if (who.login) return { status: 'login', reason: 'x.com shows a login button' };
+    if (who.me !== job.account) return { status: 'wrong-account', reason: `logged in as @${who.me}, not @${job.account}` };
+    return null;
+  }
+
+  // On x.com/<handle>: open the ⋯ menu of a post the account wrote (reposts
+  // and quoted posts do not count) and click X's own Mute item. Tested with
+  // synthetic clicks on 2026-11-06, including in a background tab that drew no
+  // frames. A menu we decline stays open: the worker closes the tab.
+  async function muteJob(job) {
+    const h = job.handle;
+    const bad = await wrongAccount(job);
+    if (bad) return bad;
+    // A post appears a few seconds before its ⋯ button does (seen on 3 of 4
+    // profiles on 2026-11-06), so wait for one that has the button.
+    const own = () => [...document.querySelectorAll(ARTICLE)].filter((a) => L.authorHandleOf(a) === h);
+    const caret = await waitFor(() => {
+      for (const a of own()) {
+        const c = a.querySelector('[data-testid="caret"]');
+        if (c) return c;
+      }
+      return null;
+    }, waitMs(job));
+    if (!caret) {
+      return { status: 'no-post', reason: own().length ? 'its posts have no ⋯ button' : 'no post by the account on its profile' };
+    }
+    caret.click();
+    const menu = await waitFor(() => document.querySelector('[role="menu"]'), 5000, 300);
+    if (!menu) return { status: 'error', reason: 'the ⋯ menu did not open' };
+    await sleep(300); // the items arrive just after the menu node
+    const items = [...menu.querySelectorAll('[role="menuitem"]')];
+    const pick = L.chooseMuteItem(items.map(textOf), h);
+    if (pick.action === 'done') return { status: pick.status };
+    if (pick.action === 'refuse') return { status: pick.status, reason: pick.reason };
+    items[pick.index].click();
+    const sheet = () => document.querySelector('[data-testid="confirmationSheetDialog"]');
+    const toast = () => {
+      const t = document.querySelector('[data-testid="toast"]');
+      return t && textOf(t) ? t : null;
+    };
+    await waitFor(() => sheet() || toast(), 4000, 250);
+    if (sheet()) return { status: 'refused', reason: 'X asked for a confirmation; left it unanswered' };
+    const t = toast();
+    return { status: 'muted', toast: t ? textOf(t) : null };
+  }
+
+  function mutedRows() {
+    const out = [];
+    for (const cell of document.querySelectorAll('[data-testid="UserCell"]')) {
+      const a = cell.querySelector('a[href]');
+      const m = a && /^\/([A-Za-z0-9_]{1,15})$/.exec(a.getAttribute('href') || '');
+      if (m) out.push(m[1].toLowerCase());
+    }
+    return out;
+  }
+
+  // On x.com/settings/muted/all: the rows it renders, newest mute first. A
+  // background tab renders only the first 9 or so and loads no more on scroll
+  // (seen 2026-11-06), which is why the worker checks every few mutes.
+  async function checkJob(job) {
+    const bad = await wrongAccount(job);
+    if (bad) return bad;
+    const any = await waitFor(() => mutedRows().length || document.querySelector('[data-testid="emptyState"]'), waitMs(job));
+    if (!any) return { status: 'error', reason: 'settings/muted/all showed no rows' };
+    // Rows arrive in batches: read them once the count has held for a second.
+    let n = mutedRows().length;
+    for (let i = 0; i < 5; i++) {
+      await sleep(1000);
+      const m = mutedRows().length;
+      if (m === n) break;
+      n = m;
+    }
+    return { status: 'checked', rows: mutedRows() };
+  }
+
+  async function runJob(job) {
+    const work = job.kind === 'mute' ? muteJob(job) : job.kind === 'check' ? checkJob(job) : null;
+    if (!work) return;
+    let timer = null;
+    const timeout = new Promise((r) => {
+      timer = setTimeout(() => r({ status: 'error', reason: 'timed out in the page' }), job.pageTimeoutMs || 60000);
+    });
+    let result;
+    try {
+      result = await Promise.race([work, timeout]);
+    } catch (e) {
+      result = { status: 'error', reason: String((e && e.message) || e) };
+    } finally {
+      clearTimeout(timer);
+    }
+    return adapter.reportJob(Object.assign({ id: job.id }, result));
   }
 
   function extensionAdapter() {
@@ -138,6 +273,10 @@
           if (msg && msg.type === 'xsh:stats') sendResponse(fn());
         });
       },
+      // The worker answers with a job only for a tab it opened for one.
+      getJob: () => chrome.runtime.sendMessage({ type: 'xsh:job' }).catch(() => null),
+      reportJob: (result) => chrome.runtime.sendMessage({ type: 'xsh:job-result', result }).catch(() => {}),
+      noteSighting: (handle) => chrome.runtime.sendMessage({ type: 'xsh:sighting', handle }).catch(() => {}),
     };
   }
 
@@ -156,7 +295,8 @@
   adapter.subscribe(applyState);
   if (adapter.serveStats) adapter.serveStats(stats);
   adapter.load().then(applyState);
+  if (adapter.getJob && adapter.reportJob) adapter.getJob().then((job) => job && runJob(job));
 
   // Exposed for the userscript adapter and the live test harness only.
-  globalThis.XSlopHideContent = { stats, rescanAll, applyState };
+  globalThis.XSlopHideContent = { stats, rescanAll, applyState, runJob };
 })();

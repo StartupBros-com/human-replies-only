@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         x-slop-hide
 // @namespace    https://github.com/StartupBros-com/x-slop-hide
-// @version      0.2.0
-// @description  Hides x.com posts by accounts on a self-updating AI-reply spam list. Browser-only: no X API, nothing is muted or blocked.
+// @version      0.3.0
+// @description  Hides x.com posts by accounts on a self-updating AI-reply spam list. Hides only; muting is in the browser extension.
 // @license      MIT
 // @homepageURL  https://github.com/StartupBros-com/x-slop-hide
 // @supportURL   https://github.com/StartupBros-com/x-slop-hide/issues
@@ -51,11 +51,29 @@
     // The shrink guard only applies once the stored list is big enough for a
     // ratio to mean something.
     shrinkGuardFloor: 20,
+    // Muting (off unless the user turns it on). Per UTC day: at most this many
+    // mutes, and this many profile visits (an already-muted account costs a
+    // visit, not a mute).
+    muteDailyCap: 25,
+    muteVisitCap: 50,
+    // Minutes between visits, picked at random in this range. The alarm that
+    // drives muting fires once a minute (the floor at Chrome 116).
+    muteGapMinutes: [1, 3],
+    // A mute tab still open after this long is closed and counted as a failure.
+    muteTabTimeoutMs: 90000,
+    // Mutes made since the last check of settings/muted/all. A background tab
+    // renders only its first 9 rows (seen 2026-11-06), so check well before that.
+    muteCheckEvery: 5,
+    // Attempts at one account that end in a timeout or error before it is left alone.
+    muteMaxAttempts: 2,
+    // Accounts seen while browsing, muted ahead of the rest of the list.
+    muteFrontMax: 50,
   });
 
   const STORAGE_KEYS = Object.freeze({
     list: 'xsh:list',
     settings: 'xsh:settings',
+    mutes: 'xsh:mutes',
   });
 
   function normalizeHandle(raw) {
@@ -233,6 +251,206 @@
     return true;
   }
 
+  // ---------------------------------------------------------------- muting
+
+  function utcDay(ms) {
+    return new Date(ms).toISOString().slice(0, 10);
+  }
+
+  const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+  // Which item of a post's ⋯ menu to click, from the item labels X showed
+  // (2026-11-06): "mute" on a listed account's post, "unmute" once muted,
+  // "unfollow @h" when the user follows it, and a separate "mute this
+  // conversation" that must never match. Returns
+  //   { action: 'click', index }                 the one exact Mute item
+  //   { action: 'done', status: 'already' }      already muted: nothing to click
+  //   { action: 'refuse', status, reason, stopDay }
+  function chooseMuteItem(items, handle) {
+    const labels = (items || []).map(norm);
+    const h = String(handle || '').toLowerCase();
+    if (labels.some((l) => l === 'unmute' || l === `unmute @${h}`)) return { action: 'done', status: 'already' };
+    if (labels.some((l) => l === `unfollow @${h}`)) {
+      return { action: 'refuse', status: 'followed', reason: `you follow @${h}`, stopDay: false };
+    }
+    const hits = labels.map((l, i) => (l === 'mute' || l === `mute @${h}` ? i : -1)).filter((i) => i >= 0);
+    if (hits.length !== 1) {
+      return {
+        action: 'refuse',
+        status: 'refused',
+        reason: `${hits.length} exact Mute items in the menu [${labels.join(' | ')}]`,
+        stopDay: true,
+      };
+    }
+    return { action: 'click', index: hits[0] };
+  }
+
+  // A fresh record of what muting has done: per account and per UTC day.
+  function emptyMutes() {
+    return { handles: {}, days: {}, front: [], nextAt: 0, sinceCheck: [] };
+  }
+
+  // Statuses that end work on an account. 'error' does not, until it has
+  // happened muteMaxAttempts times, and neither does a first 'no-post': on
+  // 2026-11-06, 3 of 4 profiles showed their first post before its ⋯ button.
+  const SETTLED = new Set(['muted', 'already', 'followed', 'no-post', 'failed']);
+
+  function isSettled(st) {
+    if (!st || !SETTLED.has(st.status)) return false;
+    if (st.status === 'no-post') return (st.attempts || 1) >= DEFAULTS.muteMaxAttempts;
+    return true;
+  }
+
+  // Accounts to visit, in order: those seen while browsing first, then the
+  // list, then accounts being tried again. Never the allowlist, never @grok
+  // (muting it account-wide is a much bigger step than hiding its replies),
+  // never an account already settled.
+  function muteCandidates(listHandles, settings, rec) {
+    const r = rec || emptyMutes();
+    const allow = parseAllowlist(settings && settings.allowlist);
+    const listed = new Set(listHandles || []);
+    const fresh = [];
+    const retry = [];
+    const seen = new Set();
+    for (const h of [...(r.front || []), ...(listHandles || [])]) {
+      if (seen.has(h)) continue;
+      seen.add(h);
+      if (!listed.has(h) || h === GROK || allow.has(h)) continue;
+      const st = r.handles[h];
+      if (isSettled(st)) continue;
+      (st ? retry : fresh).push(h);
+    }
+    return [...fresh, ...retry];
+  }
+
+  function dayOf(rec, today) {
+    return (rec.days && rec.days[today]) || { mutes: 0, visits: 0, stopped: null };
+  }
+
+  // What today's caps leave. `stopped` is set when muting stopped itself for
+  // the day (an unexpected menu, a wrong account, a mute not on the list).
+  function muteBudget(rec, today) {
+    const d = dayOf(rec || emptyMutes(), today);
+    return {
+      mutesLeft: Math.max(0, DEFAULTS.muteDailyCap - d.mutes),
+      visitsLeft: Math.max(0, DEFAULTS.muteVisitCap - d.visits),
+      stopped: d.stopped || null,
+      mutes: d.mutes,
+      visits: d.visits,
+    };
+  }
+
+  // Fold one visit's outcome into the record (a new object). The visit was
+  // already counted when its tab opened. Outcomes:
+  //   muted        clicked the Mute item (toast text kept; confirmed later)
+  //   already      the menu offered Unmute
+  //   followed     the user follows the account: left alone
+  //   no-post      no post by the account with a ⋯ button on its profile:
+  //                tried once more, then left alone
+  //   refused      the menu was not one we act on: stops muting for the day
+  //   wrong-account, login   the tab is not logged in as the bound account: stops the day
+  //   error        timeout, closed tab, a menu that did not open: retried, up to muteMaxAttempts
+  function recordOutcome(rec, handle, outcome, now) {
+    const r = structuredCloneish(rec || emptyMutes());
+    const today = utcDay(now);
+    const d = Object.assign({ mutes: 0, visits: 0, stopped: null }, r.days[today]);
+    const prev = r.handles[handle] || {};
+    const status = outcome.status;
+    const entry = { status, at: now };
+    if (outcome.reason) entry.reason = String(outcome.reason).slice(0, 200);
+    if (status === 'muted') {
+      d.mutes += 1;
+      entry.toast = outcome.toast ? String(outcome.toast).slice(0, 120) : null;
+      entry.confirmed = null;
+      r.sinceCheck = [...(r.sinceCheck || []), handle];
+    }
+    if (status === 'error') {
+      entry.attempts = (prev.attempts || 0) + 1;
+      if (entry.attempts >= DEFAULTS.muteMaxAttempts) entry.status = 'failed';
+    }
+    if (status === 'no-post') entry.attempts = (prev.status === 'no-post' ? prev.attempts || 1 : 0) + 1;
+    if (['refused', 'wrong-account', 'login'].includes(status)) {
+      d.stopped = `@${handle}: ${status}${outcome.reason ? ` (${String(outcome.reason).slice(0, 160)})` : ''}`;
+      // Not settled: the account is tried again on a later day.
+      if (status !== 'refused') delete entry.status;
+    }
+    if (entry.status) r.handles[handle] = entry;
+    r.front = (r.front || []).filter((h) => h !== handle);
+    r.days[today] = d;
+    return r;
+  }
+
+  // Fold a read of settings/muted/all's top rows into the record. Every mute
+  // since the last check should be there; one that is not stops muting for
+  // the day, because something is not as it looked.
+  function recordCheck(rec, rows, now) {
+    const r = structuredCloneish(rec || emptyMutes());
+    const seen = new Set((rows || []).map((h) => String(h).toLowerCase()));
+    const missing = [];
+    for (const h of r.sinceCheck || []) {
+      const e = r.handles[h];
+      if (!e || e.status !== 'muted') continue;
+      e.confirmed = seen.has(h);
+      e.checkedAt = now;
+      if (!e.confirmed) missing.push(h);
+    }
+    r.sinceCheck = [];
+    if (missing.length) {
+      const today = utcDay(now);
+      const d = Object.assign({ mutes: 0, visits: 0, stopped: null }, r.days[today]);
+      d.stopped = `not on settings/muted/all after muting: @${missing.join(', @')}`;
+      r.days[today] = d;
+    }
+    return { rec: r, missing };
+  }
+
+  // A profile tab was opened: it counts against today's visit cap whatever it finds.
+  function countVisit(rec, now) {
+    const r = structuredCloneish(rec || emptyMutes());
+    const today = utcDay(now);
+    const d = Object.assign({ mutes: 0, visits: 0, stopped: null }, r.days[today]);
+    d.visits += 1;
+    r.days[today] = d;
+    return r;
+  }
+
+  // Stop muting until the next UTC day, with the reason the popup shows.
+  function stopDay(rec, now, reason) {
+    const r = structuredCloneish(rec || emptyMutes());
+    const today = utcDay(now);
+    const d = Object.assign({ mutes: 0, visits: 0, stopped: null }, r.days[today]);
+    d.stopped = String(reason).slice(0, 200);
+    r.days[today] = d;
+    return r;
+  }
+
+  // Put an account seen while browsing at the front of the queue.
+  function noteSighting(rec, handle) {
+    const r = structuredCloneish(rec || emptyMutes());
+    const front = (r.front || []).filter((h) => h !== handle);
+    front.unshift(handle);
+    r.front = front.slice(0, DEFAULTS.muteFrontMax);
+    return r;
+  }
+
+  function structuredCloneish(o) {
+    return JSON.parse(JSON.stringify(o));
+  }
+
+  // Totals for the popup.
+  function muteSummary(rec) {
+    const r = rec || emptyMutes();
+    const vals = Object.values(r.handles || {});
+    return {
+      muted: vals.filter((e) => e.status === 'muted').length,
+      confirmed: vals.filter((e) => e.status === 'muted' && e.confirmed === true).length,
+      notFound: vals.filter((e) => e.status === 'muted' && e.confirmed === false).length,
+      already: vals.filter((e) => e.status === 'already').length,
+      followed: vals.filter((e) => e.status === 'followed').length,
+      skipped: vals.filter((e) => e.status === 'no-post' || e.status === 'failed').length,
+    };
+  }
+
   const api = {
     HANDLE_RE,
     DEFAULTS,
@@ -252,6 +470,17 @@
     authorHandleOf,
     pageOwner,
     shouldHide,
+    utcDay,
+    chooseMuteItem,
+    emptyMutes,
+    muteCandidates,
+    muteBudget,
+    recordOutcome,
+    recordCheck,
+    countVisit,
+    stopDay,
+    noteSighting,
+    muteSummary,
   };
   root.XSlopHide = api;
   if (typeof module === 'object' && module && module.exports) module.exports = api;
@@ -354,11 +583,16 @@
 
 // ---- src/content.js ----
 // x-slop-hide content script: hides x.com timeline cells whose post author is
-// on the list. Display-only: it never clicks, mutes, blocks or calls an API.
+// on the list. In the user's own tabs it never clicks anything.
+//
+// Muting, when the user has turned it on, happens only in a tab the background
+// worker opened for one job (see runJob below): there it clicks a post's ⋯ and
+// X's own Mute item, then reports back, and the worker closes the tab. It never
+// calls X's API.
 //
 // State comes from an adapter: the extension adapter below (chrome.storage,
 // filled by background.js), or globalThis.XSlopHideAdapter when the userscript
-// build supplies one.
+// build supplies one. The userscript adapter has no jobs, so it only hides.
 (function () {
   'use strict';
   const L = globalThis.XSlopHide;
@@ -371,6 +605,7 @@
   let list = new Set();
   let allow = new Set();
   let paused = false;
+  let muting = false;
   let lastPath = location.pathname;
   const hiddenPosts = new Set(); // distinct posts hidden in this tab
   const hiddenAuthors = new Set();
@@ -395,6 +630,8 @@
     const hide = L.shouldHide(author, { list, allow, owner, paused });
     if (hide) {
       if (cell.getAttribute(ATTR) !== author) cell.setAttribute(ATTR, author);
+      // Seen while browsing: muted ahead of the rest of the list.
+      if (muting && !hiddenAuthors.has(author) && adapter.noteSighting) adapter.noteSighting(author);
       hiddenAuthors.add(author);
       const k = postKey(article);
       if (k) hiddenPosts.add(k);
@@ -464,17 +701,144 @@
     list = new Set((s.list && s.list.handles) || []);
     allow = L.effectiveAllow(s.settings);
     paused = !!(s.settings && s.settings.paused);
+    muting = !!(s.settings && s.settings.muteEnabled);
     rescanAll();
   }
 
+  // Who this tab is logged in as: { me } from the sidebar's profile link,
+  // { login: true } when x.com shows a login button, null while still loading.
+  function whoAmI() {
+    if (document.querySelector('[data-testid="loginButton"]')) return { login: true };
+    const a = document.querySelector('[data-testid="AppTabBar_Profile_Link"]');
+    const m = a && /^\/([A-Za-z0-9_]{1,15})$/.exec(a.getAttribute('href') || '');
+    return m ? { me: m[1].toLowerCase() } : null;
+  }
+
   function stats() {
+    const who = whoAmI();
     return {
       listed: list.size,
       paused,
+      me: (who && who.me) || null,
       hiddenNow: document.querySelectorAll(`[${ATTR}]`).length,
       hiddenPosts: hiddenPosts.size,
       hiddenAuthors: [...hiddenAuthors].sort(),
     };
+  }
+
+  // ------------------------------------------------------------ mute jobs
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const textOf = (el) => (el.textContent || '').replace(/\s+/g, ' ').trim();
+
+  async function waitFor(fn, ms, step) {
+    const end = Date.now() + ms;
+    for (;;) {
+      const v = fn();
+      if (v) return v;
+      if (Date.now() >= end) return null;
+      await sleep(step || 500);
+    }
+  }
+
+  // How long to wait for the page to show who is logged in, a post, or rows.
+  const waitMs = (job) => job.waitMs || 20000;
+
+  // The job's tab must be logged in as the account muting was turned on for.
+  async function wrongAccount(job) {
+    const who = await waitFor(whoAmI, waitMs(job));
+    if (!who) return { status: 'error', reason: 'the page never showed who is logged in' };
+    if (who.login) return { status: 'login', reason: 'x.com shows a login button' };
+    if (who.me !== job.account) return { status: 'wrong-account', reason: `logged in as @${who.me}, not @${job.account}` };
+    return null;
+  }
+
+  // On x.com/<handle>: open the ⋯ menu of a post the account wrote (reposts
+  // and quoted posts do not count) and click X's own Mute item. Tested with
+  // synthetic clicks on 2026-11-06, including in a background tab that drew no
+  // frames. A menu we decline stays open: the worker closes the tab.
+  async function muteJob(job) {
+    const h = job.handle;
+    const bad = await wrongAccount(job);
+    if (bad) return bad;
+    // A post appears a few seconds before its ⋯ button does (seen on 3 of 4
+    // profiles on 2026-11-06), so wait for one that has the button.
+    const own = () => [...document.querySelectorAll(ARTICLE)].filter((a) => L.authorHandleOf(a) === h);
+    const caret = await waitFor(() => {
+      for (const a of own()) {
+        const c = a.querySelector('[data-testid="caret"]');
+        if (c) return c;
+      }
+      return null;
+    }, waitMs(job));
+    if (!caret) {
+      return { status: 'no-post', reason: own().length ? 'its posts have no ⋯ button' : 'no post by the account on its profile' };
+    }
+    caret.click();
+    const menu = await waitFor(() => document.querySelector('[role="menu"]'), 5000, 300);
+    if (!menu) return { status: 'error', reason: 'the ⋯ menu did not open' };
+    await sleep(300); // the items arrive just after the menu node
+    const items = [...menu.querySelectorAll('[role="menuitem"]')];
+    const pick = L.chooseMuteItem(items.map(textOf), h);
+    if (pick.action === 'done') return { status: pick.status };
+    if (pick.action === 'refuse') return { status: pick.status, reason: pick.reason };
+    items[pick.index].click();
+    const sheet = () => document.querySelector('[data-testid="confirmationSheetDialog"]');
+    const toast = () => {
+      const t = document.querySelector('[data-testid="toast"]');
+      return t && textOf(t) ? t : null;
+    };
+    await waitFor(() => sheet() || toast(), 4000, 250);
+    if (sheet()) return { status: 'refused', reason: 'X asked for a confirmation; left it unanswered' };
+    const t = toast();
+    return { status: 'muted', toast: t ? textOf(t) : null };
+  }
+
+  function mutedRows() {
+    const out = [];
+    for (const cell of document.querySelectorAll('[data-testid="UserCell"]')) {
+      const a = cell.querySelector('a[href]');
+      const m = a && /^\/([A-Za-z0-9_]{1,15})$/.exec(a.getAttribute('href') || '');
+      if (m) out.push(m[1].toLowerCase());
+    }
+    return out;
+  }
+
+  // On x.com/settings/muted/all: the rows it renders, newest mute first. A
+  // background tab renders only the first 9 or so and loads no more on scroll
+  // (seen 2026-11-06), which is why the worker checks every few mutes.
+  async function checkJob(job) {
+    const bad = await wrongAccount(job);
+    if (bad) return bad;
+    const any = await waitFor(() => mutedRows().length || document.querySelector('[data-testid="emptyState"]'), waitMs(job));
+    if (!any) return { status: 'error', reason: 'settings/muted/all showed no rows' };
+    // Rows arrive in batches: read them once the count has held for a second.
+    let n = mutedRows().length;
+    for (let i = 0; i < 5; i++) {
+      await sleep(1000);
+      const m = mutedRows().length;
+      if (m === n) break;
+      n = m;
+    }
+    return { status: 'checked', rows: mutedRows() };
+  }
+
+  async function runJob(job) {
+    const work = job.kind === 'mute' ? muteJob(job) : job.kind === 'check' ? checkJob(job) : null;
+    if (!work) return;
+    let timer = null;
+    const timeout = new Promise((r) => {
+      timer = setTimeout(() => r({ status: 'error', reason: 'timed out in the page' }), job.pageTimeoutMs || 60000);
+    });
+    let result;
+    try {
+      result = await Promise.race([work, timeout]);
+    } catch (e) {
+      result = { status: 'error', reason: String((e && e.message) || e) };
+    } finally {
+      clearTimeout(timer);
+    }
+    return adapter.reportJob(Object.assign({ id: job.id }, result));
   }
 
   function extensionAdapter() {
@@ -493,6 +857,10 @@
           if (msg && msg.type === 'xsh:stats') sendResponse(fn());
         });
       },
+      // The worker answers with a job only for a tab it opened for one.
+      getJob: () => chrome.runtime.sendMessage({ type: 'xsh:job' }).catch(() => null),
+      reportJob: (result) => chrome.runtime.sendMessage({ type: 'xsh:job-result', result }).catch(() => {}),
+      noteSighting: (handle) => chrome.runtime.sendMessage({ type: 'xsh:sighting', handle }).catch(() => {}),
     };
   }
 
@@ -511,7 +879,8 @@
   adapter.subscribe(applyState);
   if (adapter.serveStats) adapter.serveStats(stats);
   adapter.load().then(applyState);
+  if (adapter.getJob && adapter.reportJob) adapter.getJob().then((job) => job && runJob(job));
 
   // Exposed for the userscript adapter and the live test harness only.
-  globalThis.XSlopHideContent = { stats, rescanAll, applyState };
+  globalThis.XSlopHideContent = { stats, rescanAll, applyState, runJob };
 })();

@@ -27,11 +27,29 @@
     // The shrink guard only applies once the stored list is big enough for a
     // ratio to mean something.
     shrinkGuardFloor: 20,
+    // Muting (off unless the user turns it on). Per UTC day: at most this many
+    // mutes, and this many profile visits (an already-muted account costs a
+    // visit, not a mute).
+    muteDailyCap: 25,
+    muteVisitCap: 50,
+    // Minutes between visits, picked at random in this range. The alarm that
+    // drives muting fires once a minute (the floor at Chrome 116).
+    muteGapMinutes: [1, 3],
+    // A mute tab still open after this long is closed and counted as a failure.
+    muteTabTimeoutMs: 90000,
+    // Mutes made since the last check of settings/muted/all. A background tab
+    // renders only its first 9 rows (seen 2026-11-06), so check well before that.
+    muteCheckEvery: 5,
+    // Attempts at one account that end in a timeout or error before it is left alone.
+    muteMaxAttempts: 2,
+    // Accounts seen while browsing, muted ahead of the rest of the list.
+    muteFrontMax: 50,
   });
 
   const STORAGE_KEYS = Object.freeze({
     list: 'xsh:list',
     settings: 'xsh:settings',
+    mutes: 'xsh:mutes',
   });
 
   function normalizeHandle(raw) {
@@ -209,6 +227,206 @@
     return true;
   }
 
+  // ---------------------------------------------------------------- muting
+
+  function utcDay(ms) {
+    return new Date(ms).toISOString().slice(0, 10);
+  }
+
+  const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+  // Which item of a post's ⋯ menu to click, from the item labels X showed
+  // (2026-11-06): "mute" on a listed account's post, "unmute" once muted,
+  // "unfollow @h" when the user follows it, and a separate "mute this
+  // conversation" that must never match. Returns
+  //   { action: 'click', index }                 the one exact Mute item
+  //   { action: 'done', status: 'already' }      already muted: nothing to click
+  //   { action: 'refuse', status, reason, stopDay }
+  function chooseMuteItem(items, handle) {
+    const labels = (items || []).map(norm);
+    const h = String(handle || '').toLowerCase();
+    if (labels.some((l) => l === 'unmute' || l === `unmute @${h}`)) return { action: 'done', status: 'already' };
+    if (labels.some((l) => l === `unfollow @${h}`)) {
+      return { action: 'refuse', status: 'followed', reason: `you follow @${h}`, stopDay: false };
+    }
+    const hits = labels.map((l, i) => (l === 'mute' || l === `mute @${h}` ? i : -1)).filter((i) => i >= 0);
+    if (hits.length !== 1) {
+      return {
+        action: 'refuse',
+        status: 'refused',
+        reason: `${hits.length} exact Mute items in the menu [${labels.join(' | ')}]`,
+        stopDay: true,
+      };
+    }
+    return { action: 'click', index: hits[0] };
+  }
+
+  // A fresh record of what muting has done: per account and per UTC day.
+  function emptyMutes() {
+    return { handles: {}, days: {}, front: [], nextAt: 0, sinceCheck: [] };
+  }
+
+  // Statuses that end work on an account. 'error' does not, until it has
+  // happened muteMaxAttempts times, and neither does a first 'no-post': on
+  // 2026-11-06, 3 of 4 profiles showed their first post before its ⋯ button.
+  const SETTLED = new Set(['muted', 'already', 'followed', 'no-post', 'failed']);
+
+  function isSettled(st) {
+    if (!st || !SETTLED.has(st.status)) return false;
+    if (st.status === 'no-post') return (st.attempts || 1) >= DEFAULTS.muteMaxAttempts;
+    return true;
+  }
+
+  // Accounts to visit, in order: those seen while browsing first, then the
+  // list, then accounts being tried again. Never the allowlist, never @grok
+  // (muting it account-wide is a much bigger step than hiding its replies),
+  // never an account already settled.
+  function muteCandidates(listHandles, settings, rec) {
+    const r = rec || emptyMutes();
+    const allow = parseAllowlist(settings && settings.allowlist);
+    const listed = new Set(listHandles || []);
+    const fresh = [];
+    const retry = [];
+    const seen = new Set();
+    for (const h of [...(r.front || []), ...(listHandles || [])]) {
+      if (seen.has(h)) continue;
+      seen.add(h);
+      if (!listed.has(h) || h === GROK || allow.has(h)) continue;
+      const st = r.handles[h];
+      if (isSettled(st)) continue;
+      (st ? retry : fresh).push(h);
+    }
+    return [...fresh, ...retry];
+  }
+
+  function dayOf(rec, today) {
+    return (rec.days && rec.days[today]) || { mutes: 0, visits: 0, stopped: null };
+  }
+
+  // What today's caps leave. `stopped` is set when muting stopped itself for
+  // the day (an unexpected menu, a wrong account, a mute not on the list).
+  function muteBudget(rec, today) {
+    const d = dayOf(rec || emptyMutes(), today);
+    return {
+      mutesLeft: Math.max(0, DEFAULTS.muteDailyCap - d.mutes),
+      visitsLeft: Math.max(0, DEFAULTS.muteVisitCap - d.visits),
+      stopped: d.stopped || null,
+      mutes: d.mutes,
+      visits: d.visits,
+    };
+  }
+
+  // Fold one visit's outcome into the record (a new object). The visit was
+  // already counted when its tab opened. Outcomes:
+  //   muted        clicked the Mute item (toast text kept; confirmed later)
+  //   already      the menu offered Unmute
+  //   followed     the user follows the account: left alone
+  //   no-post      no post by the account with a ⋯ button on its profile:
+  //                tried once more, then left alone
+  //   refused      the menu was not one we act on: stops muting for the day
+  //   wrong-account, login   the tab is not logged in as the bound account: stops the day
+  //   error        timeout, closed tab, a menu that did not open: retried, up to muteMaxAttempts
+  function recordOutcome(rec, handle, outcome, now) {
+    const r = structuredCloneish(rec || emptyMutes());
+    const today = utcDay(now);
+    const d = Object.assign({ mutes: 0, visits: 0, stopped: null }, r.days[today]);
+    const prev = r.handles[handle] || {};
+    const status = outcome.status;
+    const entry = { status, at: now };
+    if (outcome.reason) entry.reason = String(outcome.reason).slice(0, 200);
+    if (status === 'muted') {
+      d.mutes += 1;
+      entry.toast = outcome.toast ? String(outcome.toast).slice(0, 120) : null;
+      entry.confirmed = null;
+      r.sinceCheck = [...(r.sinceCheck || []), handle];
+    }
+    if (status === 'error') {
+      entry.attempts = (prev.attempts || 0) + 1;
+      if (entry.attempts >= DEFAULTS.muteMaxAttempts) entry.status = 'failed';
+    }
+    if (status === 'no-post') entry.attempts = (prev.status === 'no-post' ? prev.attempts || 1 : 0) + 1;
+    if (['refused', 'wrong-account', 'login'].includes(status)) {
+      d.stopped = `@${handle}: ${status}${outcome.reason ? ` (${String(outcome.reason).slice(0, 160)})` : ''}`;
+      // Not settled: the account is tried again on a later day.
+      if (status !== 'refused') delete entry.status;
+    }
+    if (entry.status) r.handles[handle] = entry;
+    r.front = (r.front || []).filter((h) => h !== handle);
+    r.days[today] = d;
+    return r;
+  }
+
+  // Fold a read of settings/muted/all's top rows into the record. Every mute
+  // since the last check should be there; one that is not stops muting for
+  // the day, because something is not as it looked.
+  function recordCheck(rec, rows, now) {
+    const r = structuredCloneish(rec || emptyMutes());
+    const seen = new Set((rows || []).map((h) => String(h).toLowerCase()));
+    const missing = [];
+    for (const h of r.sinceCheck || []) {
+      const e = r.handles[h];
+      if (!e || e.status !== 'muted') continue;
+      e.confirmed = seen.has(h);
+      e.checkedAt = now;
+      if (!e.confirmed) missing.push(h);
+    }
+    r.sinceCheck = [];
+    if (missing.length) {
+      const today = utcDay(now);
+      const d = Object.assign({ mutes: 0, visits: 0, stopped: null }, r.days[today]);
+      d.stopped = `not on settings/muted/all after muting: @${missing.join(', @')}`;
+      r.days[today] = d;
+    }
+    return { rec: r, missing };
+  }
+
+  // A profile tab was opened: it counts against today's visit cap whatever it finds.
+  function countVisit(rec, now) {
+    const r = structuredCloneish(rec || emptyMutes());
+    const today = utcDay(now);
+    const d = Object.assign({ mutes: 0, visits: 0, stopped: null }, r.days[today]);
+    d.visits += 1;
+    r.days[today] = d;
+    return r;
+  }
+
+  // Stop muting until the next UTC day, with the reason the popup shows.
+  function stopDay(rec, now, reason) {
+    const r = structuredCloneish(rec || emptyMutes());
+    const today = utcDay(now);
+    const d = Object.assign({ mutes: 0, visits: 0, stopped: null }, r.days[today]);
+    d.stopped = String(reason).slice(0, 200);
+    r.days[today] = d;
+    return r;
+  }
+
+  // Put an account seen while browsing at the front of the queue.
+  function noteSighting(rec, handle) {
+    const r = structuredCloneish(rec || emptyMutes());
+    const front = (r.front || []).filter((h) => h !== handle);
+    front.unshift(handle);
+    r.front = front.slice(0, DEFAULTS.muteFrontMax);
+    return r;
+  }
+
+  function structuredCloneish(o) {
+    return JSON.parse(JSON.stringify(o));
+  }
+
+  // Totals for the popup.
+  function muteSummary(rec) {
+    const r = rec || emptyMutes();
+    const vals = Object.values(r.handles || {});
+    return {
+      muted: vals.filter((e) => e.status === 'muted').length,
+      confirmed: vals.filter((e) => e.status === 'muted' && e.confirmed === true).length,
+      notFound: vals.filter((e) => e.status === 'muted' && e.confirmed === false).length,
+      already: vals.filter((e) => e.status === 'already').length,
+      followed: vals.filter((e) => e.status === 'followed').length,
+      skipped: vals.filter((e) => e.status === 'no-post' || e.status === 'failed').length,
+    };
+  }
+
   const api = {
     HANDLE_RE,
     DEFAULTS,
@@ -228,6 +446,17 @@
     authorHandleOf,
     pageOwner,
     shouldHide,
+    utcDay,
+    chooseMuteItem,
+    emptyMutes,
+    muteCandidates,
+    muteBudget,
+    recordOutcome,
+    recordCheck,
+    countVisit,
+    stopDay,
+    noteSighting,
+    muteSummary,
   };
   root.XSlopHide = api;
   if (typeof module === 'object' && module && module.exports) module.exports = api;

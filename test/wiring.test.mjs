@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { buildUserscript } from '../scripts/build-userscript.mjs';
-import { src, post, page, tick } from './helpers.mjs';
+import { src, post, page, tick, lib } from './helpers.mjs';
 import { parseHTML } from 'linkedom';
 
 const many = (n) => Array.from({ length: n }, (_, i) => `h${i}`);
@@ -15,25 +15,52 @@ function event() {
   return { addListener: (f) => fns.push(f), fire: (...a) => fns.map((f) => f(...a)) };
 }
 
+function area(store, onChanged, name) {
+  return {
+    get: async (keys) => {
+      const ks = Array.isArray(keys) ? keys : [keys];
+      return Object.fromEntries(ks.filter((k) => k in store).map((k) => [k, structuredClone(store[k])]));
+    },
+    set: async (o) => {
+      const changes = Object.fromEntries(Object.keys(o).map((k) => [k, { newValue: structuredClone(o[k]) }]));
+      Object.assign(store, structuredClone(o));
+      if (onChanged) onChanged.fire(changes, name);
+    },
+    remove: async (k) => {
+      delete store[k];
+    },
+  };
+}
+
 function fakeChrome() {
   const store = {};
+  const session = {};
   const alarmTable = {};
+  const onChanged = event();
+  const tabs = { opened: [], removed: [], nextId: 100, onRemoved: event() };
+  tabs.create = async (info) => {
+    const tab = { id: tabs.nextId++, ...info };
+    tabs.opened.push(tab);
+    return tab;
+  };
+  tabs.remove = async (id) => {
+    tabs.removed.push(id);
+    tabs.onRemoved.fire(id, {});
+  };
   return {
     store,
+    session,
     alarmTable,
-    storage: {
-      local: {
-        get: async (keys) => {
-          const ks = Array.isArray(keys) ? keys : [keys];
-          return Object.fromEntries(ks.filter((k) => k in store).map((k) => [k, structuredClone(store[k])]));
-        },
-        set: async (o) => Object.assign(store, structuredClone(o)),
-      },
-    },
+    tabs,
+    storage: { local: area(store, onChanged, 'local'), session: area(session, null, 'session'), onChanged },
     alarms: {
       get: async (name) => alarmTable[name],
       create: (name, info) => {
         alarmTable[name] = { name, ...info };
+      },
+      clear: async (name) => {
+        delete alarmTable[name];
+        return true;
       },
       onAlarm: event(),
     },
@@ -159,6 +186,240 @@ test('background: a custom feed URL in settings is used', async () => {
   assert.equal(bg.chrome.store['xsh:list'].source, 'https://mirror.example/list.txt');
 });
 
+// ------------------------------------------------------------ muting
+
+const ME = 'startupbros';
+const today = () => lib.utcDay(Date.now());
+
+// A worker with a stored list and the given settings, already installed.
+async function muteBackground({ handles = ['slop_a', 'slop_b'], settings = { muteEnabled: true, muteAccount: ME }, mutes = null } = {}) {
+  const bg = loadBackground(() => ok(handles.join('\n')));
+  bg.chrome.store['xsh:list'] = { handles, fetchedAt: Date.now(), source: 's' };
+  bg.chrome.store['xsh:settings'] = settings;
+  if (mutes) bg.chrome.store['xsh:mutes'] = mutes;
+  bg.chrome.runtime.onStartup.fire();
+  await settle();
+  return bg;
+}
+
+const alarm = async (bg, name = 'xsh-mute') => {
+  bg.chrome.alarms.onAlarm.fire({ name });
+  await settle();
+};
+
+function send(bg, msg, tabId) {
+  return new Promise((resolve) => {
+    const keep = bg.chrome.runtime.onMessage.fire(msg, { tab: { id: tabId } }, resolve);
+    if (!keep.includes(true)) resolve(undefined);
+  });
+}
+
+// Let the next visit happen now instead of 1-3 minutes on.
+const due = (bg) => {
+  bg.chrome.store['xsh:mutes'].nextAt = 0;
+};
+
+const lastTab = (bg) => bg.chrome.tabs.opened.at(-1);
+
+test('background: muting is off by default; no alarm, no tab', async () => {
+  const bg = await muteBackground({ settings: {} });
+  bg.chrome.runtime.onInstalled.fire({});
+  await settle();
+  assert.equal(bg.chrome.alarmTable['xsh-mute'], undefined);
+  await alarm(bg);
+  assert.deepEqual(bg.chrome.tabs.opened, []);
+});
+
+test('background: turning muting on sets a 1-minute alarm; turning it off clears it', async () => {
+  const bg = await muteBackground({ settings: {} });
+  await bg.chrome.storage.local.set({ 'xsh:settings': { muteEnabled: true, muteAccount: ME } });
+  await settle();
+  assert.equal(bg.chrome.alarmTable['xsh-mute'].periodInMinutes, 1);
+  await bg.chrome.storage.local.set({ 'xsh:settings': { muteEnabled: false, muteAccount: null } });
+  await settle();
+  assert.equal(bg.chrome.alarmTable['xsh-mute'], undefined);
+});
+
+test('background: one visit opens a background tab, gives it the job once, records the mute and closes the tab', async () => {
+  const bg = await muteBackground();
+  await alarm(bg);
+  assert.equal(bg.chrome.tabs.opened.length, 1);
+  const tab = lastTab(bg);
+  assert.equal(tab.url, 'https://x.com/slop_a');
+  assert.equal(tab.active, false);
+  assert.equal(bg.chrome.store['xsh:mutes'].days[today()].visits, 1);
+  assert.ok(bg.chrome.alarmTable['xsh-job-timeout'], 'a timeout alarm backs the job');
+  // Another alarm while the job runs opens nothing more.
+  await alarm(bg);
+  assert.equal(bg.chrome.tabs.opened.length, 1);
+
+  assert.equal(await send(bg, { type: 'xsh:job' }, 999), null, 'any other tab gets no job');
+  const job = await send(bg, { type: 'xsh:job' }, tab.id);
+  assert.equal(job.kind, 'mute');
+  assert.equal(job.handle, 'slop_a');
+  assert.equal(job.account, ME);
+  assert.equal(await send(bg, { type: 'xsh:job' }, tab.id), null, 'a reload of the job tab does not get it again');
+
+  await send(bg, { type: 'xsh:job-result', result: { id: job.id, status: 'muted', toast: '@slop_a has been muted.Undo' } }, tab.id);
+  const m = bg.chrome.store['xsh:mutes'];
+  assert.equal(m.handles.slop_a.status, 'muted');
+  assert.equal(m.handles.slop_a.toast, '@slop_a has been muted.Undo');
+  assert.equal(m.handles.slop_a.confirmed, null);
+  assert.equal(m.days[today()].mutes, 1);
+  assert.deepEqual(m.sinceCheck, ['slop_a']);
+  assert.deepEqual(bg.chrome.tabs.removed, [tab.id]);
+  assert.deepEqual(bg.chrome.session, {});
+  assert.equal(bg.chrome.alarmTable['xsh-job-timeout'], undefined);
+  const gap = m.nextAt - Date.now();
+  assert.ok(gap > 50000 && gap <= 180000, `next visit 1-3 min away, got ${gap} ms`);
+  // The gap holds the next visit back.
+  await alarm(bg);
+  assert.equal(bg.chrome.tabs.opened.length, 1);
+  due(bg);
+  await alarm(bg);
+  assert.equal(lastTab(bg).url, 'https://x.com/slop_b');
+});
+
+test('background: a report from another tab or with a stale id changes nothing', async () => {
+  const bg = await muteBackground();
+  await alarm(bg);
+  const tab = lastTab(bg);
+  const job = await send(bg, { type: 'xsh:job' }, tab.id);
+  await send(bg, { type: 'xsh:job-result', result: { id: job.id, status: 'muted' } }, 999);
+  await send(bg, { type: 'xsh:job-result', result: { id: 'stale', status: 'muted' } }, tab.id);
+  assert.equal(bg.chrome.store['xsh:mutes'].handles.slop_a, undefined);
+  assert.deepEqual(bg.chrome.tabs.removed, []);
+});
+
+test('background: never visits @grok, the allowlist or settled accounts; accounts seen while browsing go first', async () => {
+  const bg = await muteBackground({
+    handles: ['done_a', 'friend', 'grok', 'slop_b', 'slop_c'],
+    settings: { muteEnabled: true, muteAccount: ME, allowlist: 'Friend', showGrok: false },
+    mutes: { ...lib.emptyMutes(), handles: { done_a: { status: 'muted', confirmed: true } } },
+  });
+  await send(bg, { type: 'xsh:sighting', handle: 'human' }, 5); // not listed: ignored
+  await send(bg, { type: 'xsh:sighting', handle: 'slop_c' }, 5);
+  assert.deepEqual(bg.chrome.store['xsh:mutes'].front, ['slop_c']);
+  const visited = [];
+  for (let i = 0; i < 4; i++) {
+    await alarm(bg);
+    const tab = lastTab(bg);
+    if (!tab || visited.includes(tab.url)) break;
+    visited.push(tab.url);
+    const job = await send(bg, { type: 'xsh:job' }, tab.id);
+    await send(bg, { type: 'xsh:job-result', result: { id: job.id, status: 'no-post' } }, tab.id);
+    due(bg);
+  }
+  assert.deepEqual(visited, ['https://x.com/slop_c', 'https://x.com/slop_b']);
+});
+
+test('background: after 5 mutes it checks settings/muted/all; a mute missing there stops the day', async () => {
+  const five = ['m1', 'm2', 'm3', 'm4', 'm5'];
+  const handles = Object.fromEntries(five.map((h) => [h, { status: 'muted', confirmed: null }]));
+  const bg = await muteBackground({
+    handles: [...five, 'slop_z'],
+    mutes: { ...lib.emptyMutes(), handles, sinceCheck: five, days: { [today()]: { mutes: 5, visits: 5, stopped: null } } },
+  });
+  await alarm(bg);
+  const tab = lastTab(bg);
+  assert.equal(tab.url, 'https://x.com/settings/muted/all');
+  assert.equal(tab.active, false);
+  assert.equal(bg.chrome.store['xsh:mutes'].days[today()].visits, 5, 'a check is not a profile visit');
+  const job = await send(bg, { type: 'xsh:job' }, tab.id);
+  assert.equal(job.kind, 'check');
+  await send(bg, { type: 'xsh:job-result', result: { id: job.id, status: 'checked', rows: ['m5', 'm4', 'm2', 'm1', 'older'] } }, tab.id);
+  const m = bg.chrome.store['xsh:mutes'];
+  assert.deepEqual(five.map((h) => m.handles[h].confirmed), [true, true, false, true, true]);
+  assert.deepEqual(m.sinceCheck, []);
+  assert.match(m.days[today()].stopped, /@m3/);
+  due(bg);
+  await alarm(bg);
+  assert.equal(bg.chrome.tabs.opened.length, 1, 'stopped for the day: slop_z waits');
+});
+
+test('background: at the daily caps it only finishes a pending check', async () => {
+  let bg = await muteBackground({ mutes: { ...lib.emptyMutes(), days: { [today()]: { mutes: 25, visits: 25, stopped: null } } } });
+  await alarm(bg);
+  assert.deepEqual(bg.chrome.tabs.opened, []);
+  bg = await muteBackground({ mutes: { ...lib.emptyMutes(), days: { [today()]: { mutes: 3, visits: 50, stopped: null } } } });
+  await alarm(bg);
+  assert.deepEqual(bg.chrome.tabs.opened, []);
+  bg = await muteBackground({
+    mutes: {
+      ...lib.emptyMutes(),
+      handles: { m1: { status: 'muted', confirmed: null } },
+      sinceCheck: ['m1'],
+      days: { [today()]: { mutes: 25, visits: 30, stopped: null } },
+    },
+  });
+  await alarm(bg);
+  assert.deepEqual(bg.chrome.tabs.opened.map((t) => t.url), ['https://x.com/settings/muted/all']);
+});
+
+test('background: a tab that never answers is closed after 90 s, retried after the untried accounts, and left alone after a second failure', async () => {
+  const bg = await muteBackground();
+  const timeOut = async (attempt) => {
+    await alarm(bg);
+    const tab = lastTab(bg);
+    assert.equal(tab.url, 'https://x.com/slop_a');
+    bg.chrome.session['xsh:job'].startedAt -= 91000;
+    await alarm(bg, 'xsh-job-timeout');
+    assert.ok(bg.chrome.tabs.removed.includes(tab.id));
+    const e = bg.chrome.store['xsh:mutes'].handles.slop_a;
+    assert.equal(e.attempts, attempt);
+    assert.equal(e.status, attempt === 1 ? 'error' : 'failed');
+    due(bg);
+  };
+  await timeOut(1);
+  // slop_b has not been tried yet, so it goes before slop_a's retry.
+  await alarm(bg);
+  const b = lastTab(bg);
+  assert.equal(b.url, 'https://x.com/slop_b');
+  const job = await send(bg, { type: 'xsh:job' }, b.id);
+  await send(bg, { type: 'xsh:job-result', result: { id: job.id, status: 'already' } }, b.id);
+  due(bg);
+  await timeOut(2);
+  await alarm(bg);
+  // No fourth tab: slop_a failed twice and slop_b answered, so nothing is left to visit.
+  assert.equal(bg.chrome.tabs.opened.length, 3, 'no new tab: nothing is left to visit');
+  assert.equal(lastTab(bg).url, 'https://x.com/slop_a');
+  assert.equal(bg.chrome.store['xsh:mutes'].days[today()].mutes, 0);
+});
+
+test('background: closing the job tab counts as an error; turning muting off mid-job drops the job', async () => {
+  let bg = await muteBackground();
+  await alarm(bg);
+  await bg.chrome.tabs.remove(lastTab(bg).id);
+  await settle();
+  assert.equal(bg.chrome.store['xsh:mutes'].handles.slop_a.status, 'error');
+  assert.match(bg.chrome.store['xsh:mutes'].handles.slop_a.reason, /closed/);
+
+  bg = await muteBackground();
+  await alarm(bg);
+  const tab = lastTab(bg);
+  await bg.chrome.storage.local.set({ 'xsh:settings': { muteEnabled: false, muteAccount: null } });
+  await alarm(bg, 'xsh-job-timeout');
+  assert.ok(bg.chrome.tabs.removed.includes(tab.id));
+  assert.deepEqual(bg.chrome.session, {});
+  assert.equal(bg.chrome.store['xsh:mutes'].handles.slop_a, undefined);
+});
+
+test('background: a wrong-account or login report stops muting for the day', async () => {
+  for (const status of ['wrong-account', 'login']) {
+    const bg = await muteBackground();
+    await alarm(bg);
+    const tab = lastTab(bg);
+    const job = await send(bg, { type: 'xsh:job' }, tab.id);
+    await send(bg, { type: 'xsh:job-result', result: { id: job.id, status, reason: 'x' } }, tab.id);
+    const m = bg.chrome.store['xsh:mutes'];
+    assert.match(m.days[today()].stopped, new RegExp(status));
+    assert.equal(m.handles.slop_a, undefined, 'the account is tried again another day');
+    due(bg);
+    await alarm(bg);
+    assert.equal(bg.chrome.tabs.opened.length, 1);
+  }
+});
+
 test('userscript build: header grants and connects only what it uses', () => {
   const us = buildUserscript();
   assert.match(us, /^\/\/ ==UserScript==/);
@@ -282,6 +543,66 @@ test('popup: the @grok checkbox shows and saves showGrok, keeping other settings
   await settle();
   assert.equal(p.chrome.store['xsh:settings'].showGrok, false);
   assert.equal(box.checked, false);
+});
+
+test('popup: muting binds to the account logged in on this tab, and refuses without one', async () => {
+  const p = loadPopup({ 'xsh:list': { handles: ['slop_a'], fetchedAt: Date.now(), source: 's' }, 'xsh:settings': { allowlist: 'friend' } });
+  await settle();
+  const box = p.document.getElementById('mute');
+  assert.equal(box.checked, false);
+  assert.equal(p.document.getElementById('muteState').textContent, 'Off.');
+  // No x.com tab: stays off and says why.
+  box.checked = true;
+  box.dispatchEvent(new p.window.Event('change'));
+  await settle();
+  assert.equal(box.checked, false);
+  assert.equal(p.document.getElementById('muteErr').hidden, false);
+  assert.equal(p.chrome.store['xsh:settings'].muteEnabled, undefined);
+  // An x.com tab logged in as @startupbros.
+  p.chrome.tabs.query = async () => [{ id: 7 }];
+  p.chrome.tabs.sendMessage = async () => ({ me: 'startupbros', paused: false, hiddenPosts: 0, hiddenAuthors: [], hiddenNow: 0 });
+  box.checked = true;
+  box.dispatchEvent(new p.window.Event('change'));
+  await settle();
+  assert.deepEqual(p.chrome.store['xsh:settings'], { allowlist: 'friend', muteEnabled: true, muteAccount: 'startupbros' });
+  assert.match(p.document.getElementById('muteState').textContent, /^Muting as @startupbros\. Today \(UTC\): 0 of 25 mutes, 0 of 50 visits/);
+  box.checked = false;
+  box.dispatchEvent(new p.window.Event('change'));
+  await settle();
+  assert.deepEqual(p.chrome.store['xsh:settings'], { allowlist: 'friend', muteEnabled: false, muteAccount: null });
+});
+
+test("popup: shows today's counts, the totals and why muting stopped", async () => {
+  const p = loadPopup({
+    'xsh:list': { handles: ['a'], fetchedAt: Date.now(), source: 's' },
+    'xsh:settings': { muteEnabled: true, muteAccount: 'startupbros' },
+    'xsh:mutes': {
+      ...lib.emptyMutes(),
+      handles: {
+        a: { status: 'muted', confirmed: true },
+        b: { status: 'muted', confirmed: false },
+        c: { status: 'already' },
+        d: { status: 'followed' },
+        e: { status: 'no-post' },
+      },
+      days: { [lib.utcDay(Date.now())]: { mutes: 2, visits: 5, stopped: 'not on settings/muted/all after muting: @b' } },
+    },
+  });
+  await settle();
+  assert.equal(p.document.getElementById('mute').checked, true);
+  assert.equal(
+    p.document.getElementById('muteState').textContent,
+    'Muting as @startupbros. Today (UTC): 2 of 25 mutes, 5 of 50 visits. ' +
+      'So far: 2 muted (1 seen on your muted list, 1 not found there), 1 already muted, 1 you follow, 1 skipped.',
+  );
+  assert.equal(p.document.getElementById('muteStop').hidden, false);
+  assert.equal(p.document.getElementById('muteStop').textContent, 'Stopped for today: not on settings/muted/all after muting: @b');
+});
+
+test('userscript: has no job channel, so it only hides', async () => {
+  const built = buildUserscript();
+  assert.match(built, /@description {2}Hides x\.com posts .* Hides only; muting is in the browser extension\./);
+  assert.doesNotMatch(src('src/userscript-adapter.js'), /getJob|reportJob/);
 });
 
 test('userscript: an older refresh in another tab cannot overwrite a newer list', async () => {
