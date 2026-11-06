@@ -491,8 +491,8 @@ button, so the job waits for the button.
 
 The unpacked extension was run in Chromium 156 (headless, through Playwright)
 with x.com answered by a local HTTPS server of fixture pages; Playwright's own
-request routing did not reach the tabs the extension opened. The 5 most recent
-runs passed 24 of 24 checks:
+request routing did not reach the tabs the extension opened. The 6 most recent
+runs, the last at version 0.3.0, passed 24 of 24 checks:
 
 - With muting off there is no mute alarm and no sightings. Turning it on
   creates a 1-minute alarm; turning it off clears it.
@@ -508,7 +508,7 @@ runs passed 24 of 24 checks:
   the day on a third that the fixture muted list leaves out.
 - A stopped day opens no tabs.
 
-One run before those 5 failed a check. The likely cause is the test harness,
+One run before those 6 failed a check. The likely cause is the test harness,
 which changed the worker's stored state outside the worker's own queue; it now
 goes through that queue. In an earlier run of the same setup, a visit tab that
 never answered was closed after 90 s and recorded as a failed visit.
