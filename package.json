@@ -1,9 +1,9 @@
 {
   "name": "x-slop-hide",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
-  "description": "Hide x.com posts by accounts on a self-updating AI-reply spam list. Browser-only.",
+  "description": "Hide x.com posts by accounts on a self-updating AI-reply spam list, and optionally mute them on X at a capped daily pace. No X API.",
   "scripts": {
     "test": "node --test 'test/*.test.mjs'",
     "build": "node scripts/build-userscript.mjs",
