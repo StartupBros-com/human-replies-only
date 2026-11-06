@@ -5,8 +5,8 @@ import { lib } from './helpers.mjs';
 const many = (n, prefix = 'h') => Array.from({ length: n }, (_, i) => `${prefix}${i}`);
 
 test('normalizeHandle lowercases, strips @ and rejects non-handles', () => {
-  assert.equal(lib.normalizeHandle(' @KaiBGR '), 'kaibgr');
-  assert.equal(lib.normalizeHandle('votta7234'), 'votta7234');
+  assert.equal(lib.normalizeHandle(' @Known_Slop '), 'known_slop');
+  assert.equal(lib.normalizeHandle('user_7234'), 'user_7234');
   assert.equal(lib.normalizeHandle('a_b'), 'a_b');
   assert.equal(lib.normalizeHandle('sixteen_chars_xx'), null);
   assert.equal(lib.normalizeHandle('has space'), null);
@@ -16,8 +16,8 @@ test('normalizeHandle lowercases, strips @ and rejects non-handles', () => {
 });
 
 test('parseList dedupes, sorts, skips comments and counts junk', () => {
-  const r = lib.parseList('kaibgr\r\nKaiBGR\n\n# comment\n! filter header\n@grok\nnot a handle\nfrontmostai\n');
-  assert.deepEqual(r.handles, ['frontmostai', 'grok', 'kaibgr']);
+  const r = lib.parseList('known_slop\r\nKnown_Slop\n\n# comment\n! filter header\n@grok\nnot a handle\nfake_slop\n');
+  assert.deepEqual(r.handles, ['fake_slop', 'grok', 'known_slop']);
   assert.equal(r.rejected, 1);
   assert.equal(r.error, null);
 });
@@ -65,16 +65,16 @@ function fakeFetch({ status = 200, body = '', ctype = 'text/plain; charset=utf-8
 }
 
 test('fetchList accepts a good feed and requests it without credentials', async () => {
-  const f = fakeFetch({ body: 'kaibgr\nfrontmostai\n' });
+  const f = fakeFetch({ body: 'known_slop\nfake_slop\n' });
   const r = await lib.fetchList({ url: 'https://feed.example/u.txt', fetchImpl: f.impl });
-  assert.deepEqual(r, { ok: true, handles: ['frontmostai', 'kaibgr'], rejected: 0 });
+  assert.deepEqual(r, { ok: true, handles: ['fake_slop', 'known_slop'], rejected: 0 });
   assert.equal(f.calls[0].url, 'https://feed.example/u.txt');
   assert.equal(f.calls[0].init.credentials, 'omit');
   assert.equal(f.calls[0].init.cache, 'no-store');
 });
 
 test('fetchList defaults to the clankwall feed', async () => {
-  const f = fakeFetch({ body: 'kaibgr\n' });
+  const f = fakeFetch({ body: 'known_slop\n' });
   await lib.fetchList({ fetchImpl: f.impl });
   assert.equal(f.calls[0].url, 'https://clankwall.vogel.dev/api/usernames.txt');
 });
@@ -82,7 +82,7 @@ test('fetchList defaults to the clankwall feed', async () => {
 test('fetchList fails closed on HTTP, HTML, junk, size, network and shrink', async () => {
   const cases = [
     [{ status: 503 }, /HTTP 503/],
-    [{ ctype: 'text/html', body: 'kaibgr' }, /content-type/],
+    [{ ctype: 'text/html', body: 'known_slop' }, /content-type/],
     [{ body: 'ok\n<!doctype html>\n<p>error page</p>\n<div>\n' }, /mostly not handles/],
     [{ body: 'x'.repeat(20) }, /larger than 10 bytes/, { maxBytes: 10 }],
     [{ throws: 'offline' }, /network error: offline/],
@@ -133,25 +133,42 @@ test('isRefreshDue waits out the retry gap after a failed attempt', () => {
 });
 
 test('parseAllowlist accepts newlines, commas, spaces and @', () => {
-  assert.deepEqual([...lib.parseAllowlist('@Grok, kaibgr\n  bad handle!! x_y')].sort(), ['bad', 'grok', 'kaibgr', 'x_y']);
+  assert.deepEqual([...lib.parseAllowlist('@Grok, known_slop\n  bad handle!! x_y')].sort(), ['bad', 'grok', 'known_slop', 'x_y']);
   assert.equal(lib.parseAllowlist(undefined).size, 0);
 });
 
 test('pageOwner reads the first path segment', () => {
-  assert.equal(lib.pageOwner('/KaiBGR/with_replies'), 'kaibgr');
-  assert.equal(lib.pageOwner('/kaibgr/status/123'), 'kaibgr');
+  assert.equal(lib.pageOwner('/Known_Slop/with_replies'), 'known_slop');
+  assert.equal(lib.pageOwner('/known_slop/status/123'), 'known_slop');
   assert.equal(lib.pageOwner('/'), null);
   assert.equal(lib.pageOwner('/i/lists/1'), 'i');
 });
 
 test('shouldHide needs a listed, non-allowlisted author off their own page', () => {
-  const list = new Set(['kaibgr', 'grok']);
+  const list = new Set(['known_slop', 'grok']);
   const base = { list, allow: new Set(), owner: null, paused: false };
-  assert.equal(lib.shouldHide('kaibgr', base), true);
+  assert.equal(lib.shouldHide('known_slop', base), true);
   assert.equal(lib.shouldHide('someone', base), false);
   assert.equal(lib.shouldHide(null, base), false);
-  assert.equal(lib.shouldHide('kaibgr', { ...base, paused: true }), false);
+  assert.equal(lib.shouldHide('known_slop', { ...base, paused: true }), false);
   assert.equal(lib.shouldHide('grok', { ...base, allow: new Set(['grok']) }), false);
-  assert.equal(lib.shouldHide('kaibgr', { ...base, owner: 'kaibgr' }), false);
-  assert.equal(lib.shouldHide('grok', { ...base, owner: 'kaibgr' }), true);
+  assert.equal(lib.shouldHide('known_slop', { ...base, owner: 'known_slop' }), false);
+  assert.equal(lib.shouldHide('grok', { ...base, owner: 'known_slop' }), true);
+});
+
+test('effectiveAllow adds @grok only when showGrok is on', () => {
+  assert.deepEqual([...lib.effectiveAllow({ allowlist: 'friend' })].sort(), ['friend']);
+  assert.deepEqual([...lib.effectiveAllow({ allowlist: 'friend', showGrok: true })].sort(), ['friend', 'grok']);
+  assert.equal(lib.effectiveAllow(undefined).size, 0);
+  assert.equal(lib.effectiveAllow({}).has('grok'), false);
+  // Only a real true counts; a stray string from hand-edited storage does not.
+  assert.equal(lib.effectiveAllow({ showGrok: 'false' }).has('grok'), false);
+});
+
+// Planted negative: the switch must not widen into a general allow.
+test('showGrok unhides @grok and no other listed author', () => {
+  const list = new Set(['known_slop', 'grok']);
+  const allow = lib.effectiveAllow({ showGrok: true });
+  assert.equal(lib.shouldHide('grok', { list, allow }), false);
+  assert.equal(lib.shouldHide('known_slop', { list, allow }), true);
 });

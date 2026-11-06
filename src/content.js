@@ -107,7 +107,7 @@
 
   function applyState(s) {
     list = new Set((s.list && s.list.handles) || []);
-    allow = L.parseAllowlist(s.settings && s.settings.allowlist);
+    allow = L.effectiveAllow(s.settings);
     paused = !!(s.settings && s.settings.paused);
     rescanAll();
   }

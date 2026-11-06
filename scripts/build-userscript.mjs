@@ -10,13 +10,23 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(join(root, p), 'utf8');
 const manifest = JSON.parse(read('manifest.json'));
 
+const REPO = 'https://github.com/StartupBros-com/x-slop-hide';
+// Managers re-download from here and install it only when @version is higher,
+// so a release bumps manifest.json's version.
+const RAW = 'https://raw.githubusercontent.com/StartupBros-com/x-slop-hide/main/dist/x-slop-hide.user.js';
+
 export function buildUserscript() {
   const header = [
     '// ==UserScript==',
     '// @name         x-slop-hide',
-    '// @namespace    https://github.com/StartupBros-com/x-slop-hide',
+    `// @namespace    ${REPO}`,
     `// @version      ${manifest.version}`,
     `// @description  ${manifest.description}`,
+    '// @license      MIT',
+    `// @homepageURL  ${REPO}`,
+    `// @supportURL   ${REPO}/issues`,
+    `// @downloadURL  ${RAW}`,
+    `// @updateURL    ${RAW}`,
     '// @match        https://x.com/*',
     '// @match        https://twitter.com/*',
     '// @match        https://mobile.x.com/*',

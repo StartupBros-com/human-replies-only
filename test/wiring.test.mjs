@@ -64,12 +64,12 @@ const settle = async () => {
 };
 
 test('background: install fetches the feed, stores it and schedules a 6-hour alarm', async () => {
-  const bg = loadBackground(() => ok('KaiBGR\nfrontmostai\n'));
+  const bg = loadBackground(() => ok('Known_Slop\nfake_slop\n'));
   bg.chrome.runtime.onInstalled.fire({ reason: 'install' });
   await settle();
   assert.deepEqual(bg.requests.map((r) => r.url), ['https://clankwall.vogel.dev/api/usernames.txt']);
   const rec = bg.chrome.store['xsh:list'];
-  assert.deepEqual(rec.handles, ['frontmostai', 'kaibgr']);
+  assert.deepEqual(rec.handles, ['fake_slop', 'known_slop']);
   assert.equal(rec.lastError, null);
   assert.equal(bg.chrome.alarmTable['xsh-refresh'].periodInMinutes, 360);
 });
@@ -96,8 +96,8 @@ test('background: a failed or shrunken refresh keeps the stored list', async () 
 });
 
 test('background: startup refreshes only when due; the popup message forces it', async () => {
-  const bg = loadBackground(() => ok('kaibgr\n'));
-  bg.chrome.store['xsh:list'] = { handles: ['kaibgr'], fetchedAt: Date.now(), source: 's' };
+  const bg = loadBackground(() => ok('known_slop\n'));
+  bg.chrome.store['xsh:list'] = { handles: ['known_slop'], fetchedAt: Date.now(), source: 's' };
   bg.chrome.runtime.onStartup.fire();
   await settle();
   assert.equal(bg.requests.length, 0);
@@ -151,7 +151,7 @@ test('background: a refresh commits against the list stored now, not the one it 
 });
 
 test('background: a custom feed URL in settings is used', async () => {
-  const bg = loadBackground(() => ok('kaibgr\n'));
+  const bg = loadBackground(() => ok('known_slop\n'));
   bg.chrome.store['xsh:settings'] = { feedUrl: 'https://mirror.example/list.txt' };
   bg.chrome.runtime.onInstalled.fire({});
   await settle();
@@ -167,12 +167,26 @@ test('userscript build: header grants and connects only what it uses', () => {
   assert.doesNotMatch(us, /unsafeWindow/);
 });
 
+// Managers install an update only when @version rises, and fetch it from @updateURL.
+test('userscript build: carries the manifest version, MIT licence and update URLs', () => {
+  const us = buildUserscript();
+  const version = JSON.parse(src('manifest.json')).version;
+  const raw = 'https://raw.githubusercontent.com/StartupBros-com/x-slop-hide/main/dist/x-slop-hide.user.js';
+  assert.match(us, new RegExp(`^// @version {6}${version.replace(/\./g, '\\.')}$`, 'm'));
+  assert.equal(JSON.parse(src('package.json')).version, version);
+  assert.match(us, /^\/\/ @license {6}MIT$/m);
+  assert.ok(us.includes(`// @downloadURL  ${raw}\n`));
+  assert.ok(us.includes(`// @updateURL    ${raw}\n`));
+});
+
 // Run the built userscript in a VM with in-memory GM_* storage. Tabs that
 // share `values` share storage, as they do under a userscript manager.
-function loadUserscript({ values = {}, respond }) {
-  const { window, document, MutationObserver } = parseHTML(
-    page([post({ author: 'kaibgr', status: '1' }), post({ author: 'realhuman', status: '2' })]),
-  );
+function loadUserscript({
+  values = {},
+  respond,
+  cells = [post({ author: 'known_slop', status: '1' }), post({ author: 'realhuman', status: '2' })],
+}) {
+  const { window, document, MutationObserver } = parseHTML(page(cells));
   const requests = [];
   const menu = {};
   const intervals = [];
@@ -205,15 +219,69 @@ const gmOk = (body) => (req) =>
   setTimeout(() => req.onload({ status: 200, responseHeaders: 'content-type: text/plain\r\n', responseText: body }), 0);
 
 test('userscript: fetches via GM_xmlhttpRequest, caches, and hides listed authors', async () => {
-  const us = loadUserscript({ respond: gmOk('kaibgr\n') });
+  const us = loadUserscript({ respond: gmOk('known_slop\n') });
   await settle();
   assert.equal(us.requests.length, 1);
   assert.equal(us.requests[0].url, 'https://clankwall.vogel.dev/api/usernames.txt');
   assert.equal(us.requests[0].anonymous, true);
-  assert.deepEqual(us.values['xsh:list'].handles, ['kaibgr']);
+  assert.deepEqual(us.values['xsh:list'].handles, ['known_slop']);
   const hidden = (s) => us.document.querySelector(`[data-fixture="${s}"]`).hasAttribute('data-xsh-hidden');
   assert.deepEqual([hidden('1'), hidden('2')], [true, false]);
-  assert.deepEqual(Object.keys(us.menu), ['Pause / resume hiding', 'Refresh list now', 'Edit always-show list']);
+  assert.deepEqual(Object.keys(us.menu), [
+    'Pause / resume hiding',
+    'Show / hide @grok',
+    'Refresh list now',
+    'Edit always-show list',
+  ]);
+});
+
+test('userscript: the @grok menu item flips showGrok and the page follows', async () => {
+  const us = loadUserscript({
+    respond: gmOk('known_slop\ngrok\n'),
+    cells: [post({ author: 'grok', status: '1' }), post({ author: 'known_slop', status: '2' })],
+  });
+  await settle();
+  const hidden = (s) => us.document.querySelector(`[data-fixture="${s}"]`).hasAttribute('data-xsh-hidden');
+  assert.deepEqual([hidden('1'), hidden('2')], [true, true]);
+  us.menu['Show / hide @grok']();
+  assert.equal(us.values['xsh:settings'].showGrok, true);
+  assert.deepEqual([hidden('1'), hidden('2')], [false, true]);
+  us.menu['Show / hide @grok']();
+  assert.equal(us.values['xsh:settings'].showGrok, false);
+  assert.deepEqual([hidden('1'), hidden('2')], [true, true]);
+});
+
+// Run the real popup.js against popup.html with an in-memory chrome.storage.
+function loadPopup(store) {
+  const { window, document } = parseHTML(src('src/popup.html'));
+  const chrome = fakeChrome();
+  Object.assign(chrome.store, structuredClone(store));
+  chrome.tabs = { query: async () => [], sendMessage: async () => null };
+  chrome.runtime.sendMessage = async () => ({ ok: true });
+  const ctx = vm.createContext({ window, document, chrome, console, URL });
+  vm.runInContext(src('src/lib.js'), ctx, { filename: 'src/lib.js' });
+  vm.runInContext(src('src/popup.js'), ctx, { filename: 'src/popup.js' });
+  return { window, document, chrome };
+}
+
+test('popup: the @grok checkbox shows and saves showGrok, keeping other settings', async () => {
+  const p = loadPopup({
+    'xsh:list': { handles: ['grok'], fetchedAt: Date.now(), source: 'https://clankwall.vogel.dev/api/usernames.txt' },
+    'xsh:settings': { allowlist: 'friend', paused: false },
+  });
+  await settle();
+  const box = p.document.getElementById('grok');
+  assert.equal(box.checked, false);
+  box.checked = true;
+  box.dispatchEvent(new p.window.Event('change'));
+  await settle();
+  assert.deepEqual(p.chrome.store['xsh:settings'], { allowlist: 'friend', paused: false, showGrok: true });
+  assert.equal(box.checked, true);
+  box.checked = false;
+  box.dispatchEvent(new p.window.Event('change'));
+  await settle();
+  assert.equal(p.chrome.store['xsh:settings'].showGrok, false);
+  assert.equal(box.checked, false);
 });
 
 test('userscript: an older refresh in another tab cannot overwrite a newer list', async () => {
@@ -245,8 +313,8 @@ test('userscript: an older refresh in another tab cannot overwrite a newer list'
 test('userscript: an open tab re-checks on a timer and when it becomes visible', async () => {
   const hour = 60 * 60 * 1000;
   const now = Date.now();
-  const values = { 'xsh:list': { handles: ['kaibgr'], fetchedAt: now, lastAttemptAt: now, source: 's', lastError: null, seq: 1 } };
-  let body = 'kaibgr\nnewbot\n';
+  const values = { 'xsh:list': { handles: ['known_slop'], fetchedAt: now, lastAttemptAt: now, source: 's', lastError: null, seq: 1 } };
+  let body = 'known_slop\nnewbot\n';
   const us = loadUserscript({ values, respond: (req) => gmOk(body)(req) });
   await settle();
   assert.equal(us.requests.length, 0);
@@ -261,11 +329,11 @@ test('userscript: an open tab re-checks on a timer and when it becomes visible',
   us.intervals[0].fn();
   await settle();
   assert.equal(us.requests.length, 1);
-  assert.deepEqual(values['xsh:list'].handles, ['kaibgr', 'newbot']);
+  assert.deepEqual(values['xsh:list'].handles, ['known_slop', 'newbot']);
   // Timers were suspended in the background; the tab comes back into view.
   values['xsh:list'].fetchedAt -= 7 * hour;
   values['xsh:list'].lastAttemptAt -= 7 * hour;
-  body = 'kaibgr\nnewbot\nthird\n';
+  body = 'known_slop\nnewbot\nthird\n';
   Object.defineProperty(us.document, 'visibilityState', { value: 'visible', configurable: true });
   us.document.dispatchEvent(new us.window.Event('visibilitychange'));
   await settle();
@@ -278,7 +346,7 @@ test('userscript: a failed refresh is retried after the retry gap, not on every 
   let fail = true;
   const us = loadUserscript({
     values,
-    respond: (req) => (fail ? setTimeout(() => req.onerror(), 0) : gmOk('kaibgr\n')(req)),
+    respond: (req) => (fail ? setTimeout(() => req.onerror(), 0) : gmOk('known_slop\n')(req)),
   });
   await settle();
   assert.equal(us.requests.length, 1);
@@ -291,7 +359,7 @@ test('userscript: a failed refresh is retried after the retry gap, not on every 
   us.intervals[0].fn();
   await settle();
   assert.equal(us.requests.length, 2);
-  assert.deepEqual(values['xsh:list'].handles, ['kaibgr']);
+  assert.deepEqual(values['xsh:list'].handles, ['known_slop']);
 });
 
 test('userscript: committed dist file matches the sources', () => {

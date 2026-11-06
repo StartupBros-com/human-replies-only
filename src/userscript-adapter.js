@@ -74,6 +74,7 @@
   }
   if (typeof GM_registerMenuCommand === 'function') {
     GM_registerMenuCommand('Pause / resume hiding', () => patchSettings({ paused: !read().settings.paused }));
+    GM_registerMenuCommand('Show / hide @grok', () => patchSettings({ showGrok: read().settings.showGrok !== true }));
     GM_registerMenuCommand('Refresh list now', () => refresh(true));
     GM_registerMenuCommand('Edit always-show list', () => {
       const cur = read().settings.allowlist || '';
