@@ -81,6 +81,25 @@ test('mute job: a profile with no post the account wrote is skipped; a quote of 
   assert.deepEqual(clicks, []);
 });
 
+// Seen live on 2026-11-06: a profile's first post rendered 2-3 s before its ⋯ button.
+test('mute job: waits for a post that has its ⋯ button, then mutes', async () => {
+  const { t, clicks } = muteRun({ cells: [post({ author: H, status: '9' })], j: job({ waitMs: 3000 }) });
+  setTimeout(() => {
+    const art = t.document.querySelector('article[data-testid="tweet"]');
+    art.insertAdjacentHTML('beforeend', '<button data-testid="caret" aria-label="More">⋯</button>');
+    wireMenu(t.document, { items: MENU, handle: H, clicks });
+  }, 700);
+  const r = await t.done;
+  assert.equal(r.status, 'muted');
+  assert.deepEqual(clicks, ['Mute']);
+});
+
+test('mute job: posts that never get a ⋯ button are reported as such', async () => {
+  const { t, clicks } = muteRun({ cells: [post({ author: H, status: '9' })] });
+  assert.deepEqual(await t.done, { id: 'j1', status: 'no-post', reason: 'its posts have no ⋯ button' });
+  assert.deepEqual(clicks, []);
+});
+
 test('mute job: a menu that never opens reports an error', async () => {
   // A caret with no menu wired to it.
   const t = runContent(profile([postWithCaret({ author: H })]), { pathname: `/${H}`, state: muting, job: job() });

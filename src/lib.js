@@ -267,27 +267,36 @@
   }
 
   // Statuses that end work on an account. 'error' does not, until it has
-  // happened muteMaxAttempts times.
+  // happened muteMaxAttempts times, and neither does a first 'no-post': on
+  // 2026-11-06, 3 of 4 profiles showed their first post before its ⋯ button.
   const SETTLED = new Set(['muted', 'already', 'followed', 'no-post', 'failed']);
 
+  function isSettled(st) {
+    if (!st || !SETTLED.has(st.status)) return false;
+    if (st.status === 'no-post') return (st.attempts || 1) >= DEFAULTS.muteMaxAttempts;
+    return true;
+  }
+
   // Accounts to visit, in order: those seen while browsing first, then the
-  // list. Never the allowlist, never @grok (muting it account-wide is a much
-  // bigger step than hiding its replies), never an account already settled.
+  // list, then accounts being tried again. Never the allowlist, never @grok
+  // (muting it account-wide is a much bigger step than hiding its replies),
+  // never an account already settled.
   function muteCandidates(listHandles, settings, rec) {
     const r = rec || emptyMutes();
     const allow = parseAllowlist(settings && settings.allowlist);
     const listed = new Set(listHandles || []);
-    const out = [];
+    const fresh = [];
+    const retry = [];
     const seen = new Set();
     for (const h of [...(r.front || []), ...(listHandles || [])]) {
       if (seen.has(h)) continue;
       seen.add(h);
       if (!listed.has(h) || h === GROK || allow.has(h)) continue;
       const st = r.handles[h];
-      if (st && SETTLED.has(st.status)) continue;
-      out.push(h);
+      if (isSettled(st)) continue;
+      (st ? retry : fresh).push(h);
     }
-    return out;
+    return [...fresh, ...retry];
   }
 
   function dayOf(rec, today) {
@@ -312,7 +321,8 @@
   //   muted        clicked the Mute item (toast text kept; confirmed later)
   //   already      the menu offered Unmute
   //   followed     the user follows the account: left alone
-  //   no-post      no post by the account on its profile: left alone
+  //   no-post      no post by the account with a ⋯ button on its profile:
+  //                tried once more, then left alone
   //   refused      the menu was not one we act on: stops muting for the day
   //   wrong-account, login   the tab is not logged in as the bound account: stops the day
   //   error        timeout, closed tab, a menu that did not open: retried, up to muteMaxAttempts
@@ -334,6 +344,7 @@
       entry.attempts = (prev.attempts || 0) + 1;
       if (entry.attempts >= DEFAULTS.muteMaxAttempts) entry.status = 'failed';
     }
+    if (status === 'no-post') entry.attempts = (prev.status === 'no-post' ? prev.attempts || 1 : 0) + 1;
     if (['refused', 'wrong-account', 'login'].includes(status)) {
       d.stopped = `@${handle}: ${status}${outcome.reason ? ` (${String(outcome.reason).slice(0, 160)})` : ''}`;
       // Not settled: the account is tried again on a later day.

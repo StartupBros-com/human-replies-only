@@ -177,10 +177,19 @@
     const h = job.handle;
     const bad = await wrongAccount(job);
     if (bad) return bad;
-    const art = await waitFor(() => [...document.querySelectorAll(ARTICLE)].find((a) => L.authorHandleOf(a) === h), waitMs(job));
-    if (!art) return { status: 'no-post', reason: 'no post by the account on its profile' };
-    const caret = art.querySelector('[data-testid="caret"]');
-    if (!caret) return { status: 'no-post', reason: 'its post has no ⋯ button' };
+    // A post appears a few seconds before its ⋯ button does (seen on 3 of 4
+    // profiles on 2026-11-06), so wait for one that has the button.
+    const own = () => [...document.querySelectorAll(ARTICLE)].filter((a) => L.authorHandleOf(a) === h);
+    const caret = await waitFor(() => {
+      for (const a of own()) {
+        const c = a.querySelector('[data-testid="caret"]');
+        if (c) return c;
+      }
+      return null;
+    }, waitMs(job));
+    if (!caret) {
+      return { status: 'no-post', reason: own().length ? 'its posts have no ⋯ button' : 'no post by the account on its profile' };
+    }
     caret.click();
     const menu = await waitFor(() => document.querySelector('[role="menu"]'), 5000, 300);
     if (!menu) return { status: 'error', reason: 'the ⋯ menu did not open' };
@@ -219,7 +228,14 @@
     if (bad) return bad;
     const any = await waitFor(() => mutedRows().length || document.querySelector('[data-testid="emptyState"]'), waitMs(job));
     if (!any) return { status: 'error', reason: 'settings/muted/all showed no rows' };
-    await sleep(1000); // let the first screen of rows finish arriving
+    // Rows arrive in batches: read them once the count has held for a second.
+    let n = mutedRows().length;
+    for (let i = 0; i < 5; i++) {
+      await sleep(1000);
+      const m = mutedRows().length;
+      if (m === n) break;
+      n = m;
+    }
     return { status: 'checked', rows: mutedRows() };
   }
 

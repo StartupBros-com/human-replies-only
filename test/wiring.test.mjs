@@ -356,9 +356,9 @@ test('background: at the daily caps it only finishes a pending check', async () 
   assert.deepEqual(bg.chrome.tabs.opened.map((t) => t.url), ['https://x.com/settings/muted/all']);
 });
 
-test('background: a tab that never answers is closed after 90 s; a second failure leaves the account alone', async () => {
+test('background: a tab that never answers is closed after 90 s, retried after the untried accounts, and left alone after a second failure', async () => {
   const bg = await muteBackground();
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  const timeOut = async (attempt) => {
     await alarm(bg);
     const tab = lastTab(bg);
     assert.equal(tab.url, 'https://x.com/slop_a');
@@ -369,9 +369,20 @@ test('background: a tab that never answers is closed after 90 s; a second failur
     assert.equal(e.attempts, attempt);
     assert.equal(e.status, attempt === 1 ? 'error' : 'failed');
     due(bg);
-  }
+  };
+  await timeOut(1);
+  // slop_b has not been tried yet, so it goes before slop_a's retry.
   await alarm(bg);
-  assert.equal(lastTab(bg).url, 'https://x.com/slop_b');
+  const b = lastTab(bg);
+  assert.equal(b.url, 'https://x.com/slop_b');
+  const job = await send(bg, { type: 'xsh:job' }, b.id);
+  await send(bg, { type: 'xsh:job-result', result: { id: job.id, status: 'already' } }, b.id);
+  due(bg);
+  await timeOut(2);
+  await alarm(bg);
+  // No fourth tab: slop_a failed twice and slop_b answered, so nothing is left to visit.
+  assert.equal(bg.chrome.tabs.opened.length, 3, 'no new tab: nothing is left to visit');
+  assert.equal(lastTab(bg).url, 'https://x.com/slop_a');
   assert.equal(bg.chrome.store['xsh:mutes'].days[today()].mutes, 0);
 });
 

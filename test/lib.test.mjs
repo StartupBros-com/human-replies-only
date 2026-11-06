@@ -198,17 +198,24 @@ test('chooseMuteItem refuses a menu without exactly one Mute item, and stops the
   }
 });
 
-test('muteCandidates: front queue first, then the list; never @grok, the allowlist, unlisted or settled accounts', () => {
+test('muteCandidates: front queue first, then the list, then retries; never @grok, the allowlist, unlisted or settled accounts', () => {
   const rec = {
     ...lib.emptyMutes(),
     front: ['slop_c', 'human'],
-    handles: { done_a: { status: 'muted' }, gone: { status: 'no-post' }, flaky: { status: 'error', attempts: 1 } },
+    handles: {
+      done_a: { status: 'muted' },
+      gone: { status: 'no-post', attempts: 2 },
+      once: { status: 'no-post', attempts: 1 },
+      flaky: { status: 'error', attempts: 1 },
+    },
   };
-  const list = ['done_a', 'flaky', 'friend', 'gone', 'grok', 'slop_b', 'slop_c'];
+  const list = ['done_a', 'flaky', 'friend', 'gone', 'grok', 'once', 'slop_b', 'slop_c'];
   // showGrok only governs hiding; @grok is never muted either way.
   for (const showGrok of [false, true]) {
-    assert.deepEqual(lib.muteCandidates(list, { allowlist: '@Friend', showGrok }, rec), ['slop_c', 'flaky', 'slop_b']);
+    assert.deepEqual(lib.muteCandidates(list, { allowlist: '@Friend', showGrok }, rec), ['slop_c', 'slop_b', 'flaky', 'once']);
   }
+  // A no-post recorded before attempts were counted is tried once more.
+  assert.deepEqual(lib.muteCandidates(['old'], {}, { ...lib.emptyMutes(), handles: { old: { status: 'no-post' } } }), ['old']);
 });
 
 test('muteBudget counts down both caps for the UTC day', () => {
@@ -228,14 +235,20 @@ test('recordOutcome: a mute counts, waits for a check and leaves the front queue
   assert.equal(start.handles.slop_a, undefined, 'the input record is not changed');
 });
 
-test('recordOutcome: already/followed/no-post settle without a mute; refused stops the day but is retried later', () => {
+test('recordOutcome: already/followed settle without a mute; no-post settles the second time; refused stops the day but is retried later', () => {
   let r = lib.emptyMutes();
   for (const status of ['already', 'followed', 'no-post']) r = lib.recordOutcome(r, status.replace('-', '_'), { status }, NOW);
   assert.equal(r.days[DAY].mutes, 0);
   assert.equal(r.days[DAY].stopped, null);
+  assert.equal(r.handles.no_post.attempts, 1);
   r = lib.recordOutcome(r, 'odd', { status: 'refused', reason: '0 exact Mute items' }, NOW);
   assert.equal(r.days[DAY].stopped, '@odd: refused (0 exact Mute items)');
-  assert.deepEqual(lib.muteCandidates(['already', 'followed', 'no_post', 'odd'], {}, r), ['odd']);
+  const list = ['already', 'followed', 'no_post', 'odd'];
+  // Both are being tried again, so they keep list order.
+  assert.deepEqual(lib.muteCandidates(list, {}, r), ['no_post', 'odd']);
+  r = lib.recordOutcome(r, 'no_post', { status: 'no-post' }, NOW);
+  assert.equal(r.handles.no_post.attempts, 2);
+  assert.deepEqual(lib.muteCandidates(list, {}, r), ['odd']);
 });
 
 test('recordOutcome: errors are retried once, then the account is left alone', () => {
