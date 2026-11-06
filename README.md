@@ -144,8 +144,9 @@ risk for the account you mute from.
    account. If it cannot tell, it leaves the box unticked and says "Open x.com
    in this tab, logged in as the account to mute from, then turn this on."
 
-Unticking the box stops muting at once: a visit in progress is dropped and its
-tab closed.
+Unticking the box starts no new visits. A visit already under way either
+finishes, and is recorded like any other, or is dropped when its 90 s are up
+and its tab closed. So one more mute can land just after you untick.
 
 ### What it does
 
@@ -159,9 +160,9 @@ tab closed.
   closes the tab.
 - One tab at a time, 1 to 3 minutes apart, and at most 25 mutes and 50 profile
   visits a day. Days are UTC days.
-- After every 5 mutes, and whenever nothing is left to visit, it opens
-  `x.com/settings/muted/all` the same way and checks that each new mute is
-  listed there.
+- After every 5 mutes, and when the day's caps are reached or nothing is left
+  to visit, it opens `x.com/settings/muted/all` the same way and checks that
+  each new mute is listed there.
 - Listed accounts whose posts it hid while you browsed go first (it keeps the
   latest 50), then the rest of the list in its order, then accounts being tried
   again.
