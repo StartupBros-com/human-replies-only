@@ -172,3 +172,109 @@ test('showGrok unhides @grok and no other listed author', () => {
   assert.equal(lib.shouldHide('grok', { list, allow }), false);
   assert.equal(lib.shouldHide('known_slop', { list, allow }), true);
 });
+
+// ---------------------------------------------------------------- muting
+
+const NOW = Date.UTC(2026, 10, 6, 12, 0, 0);
+const DAY = '2026-11-06';
+
+test('chooseMuteItem picks the one exact Mute item, matched without case or spacing', () => {
+  assert.deepEqual(lib.chooseMuteItem(['Follow @Slop_A', ' Mute ', 'Block @slop_a'], 'slop_a'), { action: 'click', index: 1 });
+  assert.deepEqual(lib.chooseMuteItem(['Mute @Slop_A'], 'slop_a'), { action: 'click', index: 0 });
+  assert.deepEqual(lib.chooseMuteItem(['Unmute', 'Block @slop_a'], 'slop_a'), { action: 'done', status: 'already' });
+  assert.deepEqual(lib.chooseMuteItem(['Unmute @slop_a'], 'slop_a'), { action: 'done', status: 'already' });
+  const f = lib.chooseMuteItem(['Unfollow @slop_a', 'Mute'], 'slop_a');
+  assert.equal(f.status, 'followed');
+  assert.equal(f.stopDay, false);
+});
+
+// Planted negatives: never "Mute this conversation", never a guess between two.
+test('chooseMuteItem refuses a menu without exactly one Mute item, and stops the day', () => {
+  for (const items of [['Mute this conversation'], ['Mute @someone_else'], ['Mute', 'Mute @slop_a'], []]) {
+    const r = lib.chooseMuteItem(items, 'slop_a');
+    assert.equal(r.action, 'refuse');
+    assert.equal(r.status, 'refused');
+    assert.equal(r.stopDay, true);
+  }
+});
+
+test('muteCandidates: front queue first, then the list; never @grok, the allowlist, unlisted or settled accounts', () => {
+  const rec = {
+    ...lib.emptyMutes(),
+    front: ['slop_c', 'human'],
+    handles: { done_a: { status: 'muted' }, gone: { status: 'no-post' }, flaky: { status: 'error', attempts: 1 } },
+  };
+  const list = ['done_a', 'flaky', 'friend', 'gone', 'grok', 'slop_b', 'slop_c'];
+  // showGrok only governs hiding; @grok is never muted either way.
+  for (const showGrok of [false, true]) {
+    assert.deepEqual(lib.muteCandidates(list, { allowlist: '@Friend', showGrok }, rec), ['slop_c', 'flaky', 'slop_b']);
+  }
+});
+
+test('muteBudget counts down both caps for the UTC day', () => {
+  const rec = { ...lib.emptyMutes(), days: { [DAY]: { mutes: 24, visits: 49, stopped: null } } };
+  assert.deepEqual(lib.muteBudget(rec, DAY), { mutesLeft: 1, visitsLeft: 1, stopped: null, mutes: 24, visits: 49 });
+  assert.deepEqual(lib.muteBudget(rec, '2026-11-07'), { mutesLeft: 25, visitsLeft: 50, stopped: null, mutes: 0, visits: 0 });
+  assert.equal(lib.utcDay(Date.UTC(2026, 10, 6, 23, 59, 59)), DAY);
+});
+
+test('recordOutcome: a mute counts, waits for a check and leaves the front queue', () => {
+  const start = lib.countVisit({ ...lib.emptyMutes(), front: ['slop_a', 'slop_b'] }, NOW);
+  const r = lib.recordOutcome(start, 'slop_a', { status: 'muted', toast: '@slop_a has been muted.Undo' }, NOW);
+  assert.deepEqual(r.days[DAY], { mutes: 1, visits: 1, stopped: null });
+  assert.deepEqual(r.handles.slop_a, { status: 'muted', at: NOW, toast: '@slop_a has been muted.Undo', confirmed: null });
+  assert.deepEqual(r.sinceCheck, ['slop_a']);
+  assert.deepEqual(r.front, ['slop_b']);
+  assert.equal(start.handles.slop_a, undefined, 'the input record is not changed');
+});
+
+test('recordOutcome: already/followed/no-post settle without a mute; refused stops the day but is retried later', () => {
+  let r = lib.emptyMutes();
+  for (const status of ['already', 'followed', 'no-post']) r = lib.recordOutcome(r, status.replace('-', '_'), { status }, NOW);
+  assert.equal(r.days[DAY].mutes, 0);
+  assert.equal(r.days[DAY].stopped, null);
+  r = lib.recordOutcome(r, 'odd', { status: 'refused', reason: '0 exact Mute items' }, NOW);
+  assert.equal(r.days[DAY].stopped, '@odd: refused (0 exact Mute items)');
+  assert.deepEqual(lib.muteCandidates(['already', 'followed', 'no_post', 'odd'], {}, r), ['odd']);
+});
+
+test('recordOutcome: errors are retried once, then the account is left alone', () => {
+  let r = lib.recordOutcome(lib.emptyMutes(), 'slop_a', { status: 'error', reason: 'timeout' }, NOW);
+  assert.equal(r.handles.slop_a.status, 'error');
+  assert.deepEqual(lib.muteCandidates(['slop_a'], {}, r), ['slop_a']);
+  r = lib.recordOutcome(r, 'slop_a', { status: 'error', reason: 'timeout' }, NOW);
+  assert.equal(r.handles.slop_a.status, 'failed');
+  assert.deepEqual(lib.muteCandidates(['slop_a'], {}, r), []);
+});
+
+test('recordOutcome: a wrong account or a login page stops the day and records nothing per account', () => {
+  for (const status of ['wrong-account', 'login']) {
+    const r = lib.recordOutcome(lib.emptyMutes(), 'slop_a', { status }, NOW);
+    assert.match(r.days[DAY].stopped, new RegExp(`^@slop_a: ${status}`));
+    assert.equal(r.handles.slop_a, undefined);
+  }
+});
+
+test('recordCheck confirms mutes seen in the rows and stops the day for any missing', () => {
+  let r = lib.emptyMutes();
+  for (const h of ['m1', 'm2']) r = lib.recordOutcome(r, h, { status: 'muted' }, NOW);
+  const ok = lib.recordCheck(r, ['M2', 'm1', 'older'], NOW + 1);
+  assert.deepEqual(ok.missing, []);
+  assert.equal(ok.rec.handles.m1.confirmed, true);
+  assert.deepEqual(ok.rec.sinceCheck, []);
+  assert.equal(ok.rec.days[DAY].stopped, null);
+  const miss = lib.recordCheck(r, ['m1'], NOW + 1);
+  assert.deepEqual(miss.missing, ['m2']);
+  assert.equal(miss.rec.handles.m2.confirmed, false);
+  assert.equal(miss.rec.days[DAY].stopped, 'not on settings/muted/all after muting: @m2');
+  assert.deepEqual(lib.muteSummary(miss.rec), { muted: 2, confirmed: 1, notFound: 1, already: 0, followed: 0, skipped: 0 });
+});
+
+test('noteSighting moves an account to the front, once, capped at muteFrontMax', () => {
+  let r = lib.emptyMutes();
+  for (let i = 0; i < 60; i++) r = lib.noteSighting(r, `h${i}`);
+  r = lib.noteSighting(r, 'h30');
+  assert.equal(r.front.length, lib.DEFAULTS.muteFrontMax);
+  assert.equal(r.front[0], 'h30');
+  assert.equal(r.front.filter((h) => h === 'h30').length, 1);
+});

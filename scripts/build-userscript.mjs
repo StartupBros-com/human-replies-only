@@ -14,6 +14,9 @@ const REPO = 'https://github.com/StartupBros-com/x-slop-hide';
 // Managers re-download from here and install it only when @version is higher,
 // so a release bumps manifest.json's version.
 const RAW = 'https://raw.githubusercontent.com/StartupBros-com/x-slop-hide/main/dist/x-slop-hide.user.js';
+// Not the manifest's: the userscript only hides. Muting needs background tabs
+// the extension opens and closes, which userscript managers do not provide.
+const DESCRIPTION = 'Hides x.com posts by accounts on a self-updating AI-reply spam list. Hides only; muting is in the browser extension.';
 
 export function buildUserscript() {
   const header = [
@@ -21,7 +24,7 @@ export function buildUserscript() {
     '// @name         x-slop-hide',
     `// @namespace    ${REPO}`,
     `// @version      ${manifest.version}`,
-    `// @description  ${manifest.description}`,
+    `// @description  ${DESCRIPTION}`,
     '// @license      MIT',
     `// @homepageURL  ${REPO}`,
     `// @supportURL   ${REPO}/issues`,

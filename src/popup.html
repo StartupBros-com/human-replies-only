@@ -29,7 +29,15 @@
   <button id="save">Save</button>
   <button id="refresh">Refresh list now</button>
 </div>
-<p class="muted">Hides posts in this browser only. Nothing is muted, blocked or sent to X.</p>
+<hr>
+<label><input type="checkbox" id="mute"> Mute listed accounts on X</label>
+<p class="muted">Mutes up to 25 a day, one every few minutes, in background tabs it opens and closes. It clicks X's own Mute, so the mutes reach the X apps too. It skips accounts you follow, @grok and the accounts above, and never unmutes.</p>
+<p class="muted">Add accounts you never want muted to the box above before turning this on.</p>
+<p class="bad">X's rules forbid "scripting the X website" and say: "The use of these techniques may result in the permanent suspension of your account." This switch is that.</p>
+<p id="muteErr" class="bad" hidden></p>
+<p id="muteState" class="muted"></p>
+<p id="muteStop" class="bad" hidden></p>
+<p class="muted">Hiding happens in this browser only. Muting, when on, goes through x.com's own page, never X's API.</p>
 <script src="lib.js"></script>
 <script src="popup.js"></script>
 </body>
