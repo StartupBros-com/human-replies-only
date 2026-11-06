@@ -154,6 +154,19 @@
     return out;
   }
 
+  // X's own assistant. clankwall lists it, and people who tag it in a thread
+  // may want its answer, so it has its own switch. Off (hidden) by default.
+  const GROK = 'grok';
+
+  // Handles that are never hidden: the user's allowlist, plus @grok when
+  // showGrok is on. The switch adds only @grok, never a wider allow.
+  function effectiveAllow(settings) {
+    const s = settings || {};
+    const out = parseAllowlist(s.allowlist);
+    if (s.showGrok === true) out.add(GROK);
+    return out;
+  }
+
   // True when el sits inside a [role="link"] container below article, which is
   // how X renders a quoted post. Bounded at article so an ancestor outside the
   // post can never change the answer.
@@ -209,6 +222,8 @@
     commitRecord,
     isRefreshDue,
     parseAllowlist,
+    GROK,
+    effectiveAllow,
     insideQuoteCard,
     authorHandleOf,
     pageOwner,

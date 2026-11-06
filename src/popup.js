@@ -27,6 +27,7 @@
     $('err').hidden = !rec.lastError;
     $('err').textContent = rec.lastError ? `Last refresh failed (${ago(rec.lastAttemptAt)}): ${rec.lastError}. Still using the previous list.` : '';
     $('paused').checked = !!s.paused;
+    $('grok').checked = s.showGrok === true;
     if (document.activeElement !== $('allow')) $('allow').value = s.allowlist || '';
 
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -51,6 +52,7 @@
   }
 
   $('paused').addEventListener('change', (e) => saveSettings({ paused: e.target.checked }).then(render));
+  $('grok').addEventListener('change', (e) => saveSettings({ showGrok: e.target.checked }).then(render));
   $('save').addEventListener('click', () => {
     const cleaned = [...L.parseAllowlist($('allow').value)].sort().join('\n');
     $('allow').value = cleaned;

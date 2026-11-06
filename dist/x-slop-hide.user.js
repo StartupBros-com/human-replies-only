@@ -1,8 +1,13 @@
 // ==UserScript==
 // @name         x-slop-hide
 // @namespace    https://github.com/StartupBros-com/x-slop-hide
-// @version      0.1.0
+// @version      0.2.0
 // @description  Hides x.com posts by accounts on a self-updating AI-reply spam list. Browser-only: no X API, nothing is muted or blocked.
+// @license      MIT
+// @homepageURL  https://github.com/StartupBros-com/x-slop-hide
+// @supportURL   https://github.com/StartupBros-com/x-slop-hide/issues
+// @downloadURL  https://raw.githubusercontent.com/StartupBros-com/x-slop-hide/main/dist/x-slop-hide.user.js
+// @updateURL    https://raw.githubusercontent.com/StartupBros-com/x-slop-hide/main/dist/x-slop-hide.user.js
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @match        https://mobile.x.com/*
@@ -173,6 +178,19 @@
     return out;
   }
 
+  // X's own assistant. clankwall lists it, and people who tag it in a thread
+  // may want its answer, so it has its own switch. Off (hidden) by default.
+  const GROK = 'grok';
+
+  // Handles that are never hidden: the user's allowlist, plus @grok when
+  // showGrok is on. The switch adds only @grok, never a wider allow.
+  function effectiveAllow(settings) {
+    const s = settings || {};
+    const out = parseAllowlist(s.allowlist);
+    if (s.showGrok === true) out.add(GROK);
+    return out;
+  }
+
   // True when el sits inside a [role="link"] container below article, which is
   // how X renders a quoted post. Bounded at article so an ancestor outside the
   // post can never change the answer.
@@ -228,6 +246,8 @@
     commitRecord,
     isRefreshDue,
     parseAllowlist,
+    GROK,
+    effectiveAllow,
     insideQuoteCard,
     authorHandleOf,
     pageOwner,
@@ -314,6 +334,7 @@
   }
   if (typeof GM_registerMenuCommand === 'function') {
     GM_registerMenuCommand('Pause / resume hiding', () => patchSettings({ paused: !read().settings.paused }));
+    GM_registerMenuCommand('Show / hide @grok', () => patchSettings({ showGrok: read().settings.showGrok !== true }));
     GM_registerMenuCommand('Refresh list now', () => refresh(true));
     GM_registerMenuCommand('Edit always-show list', () => {
       const cur = read().settings.allowlist || '';
@@ -441,7 +462,7 @@
 
   function applyState(s) {
     list = new Set((s.list && s.list.handles) || []);
-    allow = L.parseAllowlist(s.settings && s.settings.allowlist);
+    allow = L.effectiveAllow(s.settings);
     paused = !!(s.settings && s.settings.paused);
     rescanAll();
   }
