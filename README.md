@@ -187,7 +187,9 @@ risk for the account you mute from.
 1. Under **Always show these accounts**, add every listed account you never
    want muted, and click **Save**. Accounts there are never hidden and never
    muted. Everything under **Also hide these accounts** is muted too, so take
-   out any account there that you only want hidden.
+   out any account there that you only want hidden. The exception is one of
+   the six bots under [Bots](#bots): it follows its row, so it is muted only
+   when that row says **Mute on X**.
 2. Open x.com in a tab, logged in as the account to mute from.
 3. From that tab, open the popup and tick **Mute listed accounts on X**. The
    popup asks the tab which account is logged in and ties muting to that
@@ -401,6 +403,9 @@ reads (see [Limits](#limits)). Please open an issue.
   your post") are not.
 - Tag hiding reads the profile links in a post's own text. A bot named without
   a link, or named only in the "Replying to" line, is not seen.
+- Tag hiding waits until x.com shows which account is logged in (the profile
+  link in its sidebar) so that your own posts stay visible. Until then, and on
+  any layout without that link, posts that tag a bot are shown.
 - The six bot rows are fixed in the code. To hide another bot, add it under
   **Also hide these accounts** (which also mutes it while muting is on).
 - Muting reads X's menu in English: "Mute @handle", "Unmute @handle",
@@ -439,8 +444,9 @@ Muting itself runs from the extension in a desktop browser.
 Yes. Add its handle under **Also hide these accounts, and mute them when muting
 is on** and click **Save** (in the userscript: **Edit extra accounts to
 hide**). While muting is on it is muted too; there is no hide-only setting for
-an extra account then. For one of the six bots, use its row instead (see
-[Bots](#bots)), which has **Hide here**.
+an extra account then. One of the six bots follows its row even when it is in
+this box, so it is muted only when that row says **Mute on X**; use the row
+instead (see [Bots](#bots)), which has **Hide here**.
 
 ### If an account leaves the list, is it unmuted?
 
@@ -574,6 +580,27 @@ One run before those 6 failed a check. The likely cause is the test harness,
 which changed the worker's stored state outside the worker's own queue; it now
 goes through that queue. In an earlier run of the same setup, a visit tab that
 never answered was closed after 90 s and recorded as a failed visit.
+
+Version 0.4.0 ran the same way on 2026-11-06 and passed 35 of 35 checks on
+each of three runs, the last after the review fixes (each Mute click now waits
+for the worker's go-ahead). Besides the muting checks above (now 5 mutes and 7
+visits, with the check after the 5th mute), it checked:
+
+- The popup, opened as a page: six bot rows, @grok at **Hide here** and the
+  other five at **Show**, and no settings written by opening it. **Save** wrote
+  both boxes; a bot in Always show was locked to **Show**; picking **Mute on
+  X** for @AskPerplexity saved only that row; ticking the tag box saved it.
+- The user's timeline, with the tag box ticked: posts by a listed author and
+  by @grok were hidden, and so were a post tagging @grok and one tagging
+  @AskPerplexity in their own text. A post quoting a post that tagged @grok,
+  the user's own post tagging @grok, and a post tagging @pangramlabs (at
+  **Show**) stayed visible. The tab's count had the 2 tag posts apart from the
+  2 listed posts.
+- With muting on, only the listed author went to the front of the queue, not
+  @grok or the taggers. Visits went through the list, then the extra account,
+  then @AskPerplexity, each muted with one click. @grok, the bots at **Show**
+  or in Always show, the Always-show account and the taggers were never
+  visited.
 
 Not tested: Brave itself, Tampermonkey, Violentmonkey in Firefox, the 6-hour
 refresh actually firing, reposts, and the notifications page. For muting: the

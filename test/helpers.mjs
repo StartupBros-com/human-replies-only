@@ -41,9 +41,10 @@ export function page(cells) {
 // test adapter standing in for chrome.storage. Returns handles for the test.
 //
 // With `job`, the adapter also hands that job to the content script and
-// collects what it reports (`done` resolves with the report); `sightings`
+// collects what it reports (`done` resolves with the report), answers its
+// confirmJob with `confirm` and records the asks in `confirms`; `sightings`
 // collects noteSighting calls.
-export function runContent(html, { pathname = '/home', state = {}, job = null } = {}) {
+export function runContent(html, { pathname = '/home', state = {}, job = null, confirm = true } = {}) {
   const { window, document, MutationObserver } = parseHTML(html);
   const location = { pathname };
   let subscriber = null;
@@ -73,9 +74,15 @@ export function runContent(html, { pathname = '/home', state = {}, job = null } 
     },
     noteSighting: (h) => sightings.push(h),
   };
+  const confirms = [];
   if (job) {
     adapter.getJob = () => Promise.resolve(job);
     adapter.reportJob = (r) => finish(JSON.parse(JSON.stringify(r)));
+    // The worker's answer to "may I click Mute now?" (`confirm`).
+    adapter.confirmJob = (j) => {
+      confirms.push(j.id);
+      return Promise.resolve(confirm);
+    };
   }
   const ctx = vm.createContext({
     window,
@@ -102,6 +109,7 @@ export function runContent(html, { pathname = '/home', state = {}, job = null } 
     deliverMutations(records) { deliverMutations(records); },
     observed() { return observed; },
     sightings,
+    confirms,
     done,
   };
 }

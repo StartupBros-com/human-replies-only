@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { buildUserscript } from '../scripts/build-userscript.mjs';
-import { src, post, page, tick, lib } from './helpers.mjs';
+import { src, post, page, tick, lib, meLink } from './helpers.mjs';
 import { parseHTML } from 'linkedom';
 
 const many = (n) => Array.from({ length: n }, (_, i) => `h${i}`);
@@ -425,6 +425,56 @@ test('background: closing the job tab counts as an error; turning muting off mid
   assert.equal(bg.chrome.store['xsh:mutes'].handles.slop_a, undefined);
 });
 
+// Planted negatives: a settings change while the job's tab loads (before it
+// claims the job) or waits for a post (after) stops the click.
+test('background: a job whose account stops being eligible is dropped at the claim or just before the click', async () => {
+  const base = { muteEnabled: true, muteAccount: ME, bots: { askperplexity: 'mute' } };
+  const changes = [
+    { ...base, bots: { askperplexity: 'show' } },
+    { ...base, bots: { askperplexity: 'hide' } },
+    { ...base, allowlist: 'AskPerplexity' },
+    { ...base, muteAccount: 'someone_else' },
+  ];
+  for (const when of ['claim', 'click']) {
+    for (const next of changes) {
+      const bg = await muteBackground({ handles: [], settings: base });
+      await alarm(bg);
+      const tab = lastTab(bg);
+      assert.equal(tab.url, 'https://x.com/askperplexity');
+      let job = null;
+      if (when === 'click') {
+        job = await send(bg, { type: 'xsh:job' }, tab.id);
+        assert.equal(job.handle, 'askperplexity');
+        assert.equal(await send(bg, { type: 'xsh:job-go', id: job.id }, 999), false, 'another tab is told no');
+        assert.equal(await send(bg, { type: 'xsh:job-go', id: 'stale' }, tab.id), false, 'a stale id is told no');
+        assert.deepEqual(bg.chrome.tabs.removed, [], 'neither drops the job');
+      }
+      await bg.chrome.storage.local.set({ 'xsh:settings': next });
+      await settle();
+      if (when === 'claim') assert.equal(await send(bg, { type: 'xsh:job' }, tab.id), null, JSON.stringify(next));
+      else assert.equal(await send(bg, { type: 'xsh:job-go', id: job.id }, tab.id), false, JSON.stringify(next));
+      assert.deepEqual(bg.chrome.tabs.removed, [tab.id]);
+      assert.deepEqual(bg.chrome.session, {});
+      assert.equal(bg.chrome.alarmTable['xsh-job-timeout'], undefined);
+      const m = bg.chrome.store['xsh:mutes'];
+      assert.equal(m.handles.askperplexity, undefined, 'dropped unrecorded');
+      assert.equal(m.days[today()].visits, 1, 'the visit stays counted');
+    }
+  }
+});
+
+test('background: the click is confirmed while nothing has changed, once the job is claimed', async () => {
+  const bg = await muteBackground();
+  await alarm(bg);
+  const tab = lastTab(bg);
+  assert.equal(await send(bg, { type: 'xsh:job-go', id: 'any' }, tab.id), false, 'not before the claim');
+  const job = await send(bg, { type: 'xsh:job' }, tab.id);
+  assert.equal(await send(bg, { type: 'xsh:job-go', id: job.id }, tab.id), true);
+  assert.deepEqual(bg.chrome.tabs.removed, []);
+  await send(bg, { type: 'xsh:job-result', result: { id: job.id, status: 'muted' } }, tab.id);
+  assert.equal(bg.chrome.store['xsh:mutes'].handles.slop_a.status, 'muted');
+});
+
 test('background: a wrong-account or login report stops muting for the day', async () => {
   for (const status of ['wrong-account', 'login']) {
     const bg = await muteBackground();
@@ -560,6 +610,7 @@ test('userscript: the bot, extra-accounts and tag menus save what the popup save
       post({ author: 'askperplexity', status: '1' }),
       post({ author: 'extra_a', status: '2' }),
       post({ author: 'rando', mention: 'askperplexity', status: '3' }),
+      meLink('StartupBros'), // tag hiding waits for the logged-in account
     ],
   });
   await settle();

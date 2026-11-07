@@ -355,6 +355,16 @@
     return { handles: {}, days: {}, front: [], nextAt: 0, sinceCheck: [] };
   }
 
+  // The record is keyed by handle, and '__proto__' and 'constructor' pass
+  // HANDLE_RE, so entries are read and written as own properties only.
+  function entryOf(r, h) {
+    return r.handles && Object.prototype.hasOwnProperty.call(r.handles, h) ? r.handles[h] : undefined;
+  }
+
+  function setEntry(r, h, e) {
+    Object.defineProperty(r.handles, h, { value: e, enumerable: true, writable: true, configurable: true });
+  }
+
   // Statuses that end work on an account. 'error' does not, until it has
   // happened muteMaxAttempts times, and neither does a first 'no-post': on
   // 2026-11-06, 3 of 4 profiles showed their first post before its ⋯ button.
@@ -401,7 +411,7 @@
       if (seen.has(h)) continue;
       seen.add(h);
       if (!ok.has(h)) continue;
-      const st = r.handles[h];
+      const st = entryOf(r, h);
       if (isSettled(st)) continue;
       (st ? retry : fresh).push(h);
     }
@@ -439,7 +449,7 @@
     const r = structuredCloneish(rec || emptyMutes());
     const today = utcDay(now);
     const d = Object.assign({ mutes: 0, visits: 0, stopped: null }, r.days[today]);
-    const prev = r.handles[handle] || {};
+    const prev = entryOf(r, handle) || {};
     const status = outcome.status;
     const entry = { status, at: now };
     if (outcome.reason) entry.reason = String(outcome.reason).slice(0, 200);
@@ -459,7 +469,7 @@
       // Not settled: the account is tried again on a later day.
       if (status !== 'refused') delete entry.status;
     }
-    if (entry.status) r.handles[handle] = entry;
+    if (entry.status) setEntry(r, handle, entry);
     r.front = (r.front || []).filter((h) => h !== handle);
     r.days[today] = d;
     return r;
@@ -473,7 +483,7 @@
     const seen = new Set((rows || []).map((h) => String(h).toLowerCase()));
     const missing = [];
     for (const h of r.sinceCheck || []) {
-      const e = r.handles[h];
+      const e = entryOf(r, h);
       if (!e || e.status !== 'muted') continue;
       e.confirmed = seen.has(h);
       e.checkedAt = now;

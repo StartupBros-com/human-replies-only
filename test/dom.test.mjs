@@ -296,6 +296,21 @@ test('a mention hide is not a sighting and does not count the author as hidden',
   assert.deepEqual(t.sightings, ['grok'], "only @grok's own post; the background decides whether it may be muted");
 });
 
+// Planted negative: before the sidebar shows who is logged in, the user's own
+// post that tags @grok must stay visible; once it shows, the others hide.
+test('posts that tag a bot wait for the sidebar to show who is logged in', async () => {
+  const t = runContent(
+    page([post({ author: 'startupbros', mention: 'grok', status: '1' }), post({ author: 'rando', mention: 'grok', status: '2' })]),
+    { state: stateWith(LIST, { hideBotMentions: true }) },
+  );
+  await tick();
+  assert.deepEqual(['1', '2'].map(t.hidden), [false, false], 'not yet known who is logged in');
+  t.document.body.insertAdjacentHTML('beforeend', meLink('StartupBros'));
+  await tick();
+  assert.deepEqual(['1', '2'].map(t.hidden), [false, true]);
+  assert.equal(t.content.stats().hiddenMentions, 1);
+});
+
 test("on a bot's own page, posts that tag it stay visible", async () => {
   const t = runContent(mentionPage(), { pathname: '/grok/with_replies', state: stateWith(LIST, { hideBotMentions: true }) });
   await tick();

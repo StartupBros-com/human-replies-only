@@ -268,6 +268,26 @@ test('recordOutcome: a wrong account or a login page stops the day and records n
   }
 });
 
+// Planted negative: '__proto__' and 'constructor' are valid handles; on a plain
+// object they read as Object's own keys, so they were retried for ever.
+test("handles named like Object's keys are kept as ordinary accounts", () => {
+  const s = { extraList: '__proto__\nconstructor\nprototype' };
+  const eligible = lib.muteEligible([], s);
+  assert.deepEqual(eligible, ['__proto__', 'constructor', 'prototype']);
+  let rec = lib.emptyMutes();
+  assert.deepEqual(lib.muteCandidates([], s, rec), eligible, 'untried, so not retries');
+  rec = lib.recordOutcome(rec, '__proto__', { status: 'muted' }, NOW);
+  rec = lib.recordOutcome(rec, 'constructor', { status: 'already' }, NOW);
+  rec = JSON.parse(JSON.stringify(rec)); // as storage keeps it
+  assert.equal(Object.getPrototypeOf(rec.handles), Object.prototype);
+  assert.deepEqual(Object.keys(rec.handles).sort(), ['__proto__', 'constructor']);
+  assert.deepEqual(lib.muteCandidates([], s, rec), ['prototype']);
+  const sum = lib.muteSummary(rec);
+  assert.deepEqual([sum.muted, sum.already], [1, 1]);
+  const checked = lib.recordCheck(rec, ['__proto__'], NOW + 1).rec;
+  assert.equal(Object.getOwnPropertyDescriptor(checked.handles, '__proto__').value.confirmed, true);
+});
+
 test('recordCheck confirms mutes seen in the rows and stops the day for any missing', () => {
   let r = lib.emptyMutes();
   for (const h of ['m1', 'm2']) r = lib.recordOutcome(r, h, { status: 'muted' }, NOW);

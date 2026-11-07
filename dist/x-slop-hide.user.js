@@ -379,6 +379,16 @@
     return { handles: {}, days: {}, front: [], nextAt: 0, sinceCheck: [] };
   }
 
+  // The record is keyed by handle, and '__proto__' and 'constructor' pass
+  // HANDLE_RE, so entries are read and written as own properties only.
+  function entryOf(r, h) {
+    return r.handles && Object.prototype.hasOwnProperty.call(r.handles, h) ? r.handles[h] : undefined;
+  }
+
+  function setEntry(r, h, e) {
+    Object.defineProperty(r.handles, h, { value: e, enumerable: true, writable: true, configurable: true });
+  }
+
   // Statuses that end work on an account. 'error' does not, until it has
   // happened muteMaxAttempts times, and neither does a first 'no-post': on
   // 2026-11-06, 3 of 4 profiles showed their first post before its ⋯ button.
@@ -425,7 +435,7 @@
       if (seen.has(h)) continue;
       seen.add(h);
       if (!ok.has(h)) continue;
-      const st = r.handles[h];
+      const st = entryOf(r, h);
       if (isSettled(st)) continue;
       (st ? retry : fresh).push(h);
     }
@@ -463,7 +473,7 @@
     const r = structuredCloneish(rec || emptyMutes());
     const today = utcDay(now);
     const d = Object.assign({ mutes: 0, visits: 0, stopped: null }, r.days[today]);
-    const prev = r.handles[handle] || {};
+    const prev = entryOf(r, handle) || {};
     const status = outcome.status;
     const entry = { status, at: now };
     if (outcome.reason) entry.reason = String(outcome.reason).slice(0, 200);
@@ -483,7 +493,7 @@
       // Not settled: the account is tried again on a later day.
       if (status !== 'refused') delete entry.status;
     }
-    if (entry.status) r.handles[handle] = entry;
+    if (entry.status) setEntry(r, handle, entry);
     r.front = (r.front || []).filter((h) => h !== handle);
     r.days[today] = d;
     return r;
@@ -497,7 +507,7 @@
     const seen = new Set((rows || []).map((h) => String(h).toLowerCase()));
     const missing = [];
     for (const h of r.sinceCheck || []) {
-      const e = r.handles[h];
+      const e = entryOf(r, h);
       if (!e || e.status !== 'muted') continue;
       e.confirmed = seen.has(h);
       e.checkedAt = now;
@@ -753,6 +763,7 @@
   let paused = false;
   let muting = false;
   let lastPath = location.pathname;
+  let meUnknown = false; // a tagged post was left visible before whoAmI() answered
   const hiddenPosts = new Set(); // distinct posts hidden in this tab
   const hiddenAuthors = new Set();
   const hiddenMentions = new Set(); // distinct posts hidden for tagging a bot
@@ -786,8 +797,11 @@
     }
     // A post that tags a hidden bot. Not a sighting: its author is not listed.
     const tagged = mentions.size ? L.mentionIn(article, mentions) : null;
-    const me = tagged ? (whoAmI() || {}).me : null;
-    if (tagged && L.shouldHideMention(author, tagged, { allow, owner, paused, me, mentions })) {
+    // Until the sidebar shows who is logged in, the user's own posts cannot be
+    // told apart, so a tagged post stays visible; onMutations looks again then.
+    const who = tagged ? whoAmI() : null;
+    if (tagged && !who) meUnknown = true;
+    if (who && L.shouldHideMention(author, tagged, { allow, owner, paused, me: who.me, mentions })) {
       const v = `mention:${tagged}`;
       if (cell.getAttribute(ATTR) !== v) cell.setAttribute(ATTR, v);
       const k = postKey(article);
@@ -810,6 +824,12 @@
   function onMutations(records) {
     if (location.pathname !== lastPath) {
       lastPath = location.pathname;
+      rescanAll();
+      return;
+    }
+    // The sidebar's profile link arrived after some tagged posts: look at them again.
+    if (meUnknown && whoAmI()) {
+      meUnknown = false;
       rescanAll();
       return;
     }
@@ -942,6 +962,11 @@
     const pick = L.chooseMuteItem(items.map(textOf), h);
     if (pick.action === 'done') return { status: pick.status };
     if (pick.action === 'refuse') return { status: pick.status, reason: pick.reason };
+    // Settings may have changed since this tab claimed the job; the worker
+    // answers no (and closes this tab) if the account is no longer to be muted.
+    if (!adapter.confirmJob || !(await adapter.confirmJob(job))) {
+      return { status: 'error', reason: 'the worker did not confirm the mute' };
+    }
     items[pick.index].click();
     const sheet = () => document.querySelector('[data-testid="confirmationSheetDialog"]');
     const toast = () => {
@@ -1019,6 +1044,8 @@
       },
       // The worker answers with a job only for a tab it opened for one.
       getJob: () => chrome.runtime.sendMessage({ type: 'xsh:job' }).catch(() => null),
+      confirmJob: (job) =>
+        chrome.runtime.sendMessage({ type: 'xsh:job-go', id: job.id }).then((ok) => ok === true, () => false),
       reportJob: (result) => chrome.runtime.sendMessage({ type: 'xsh:job-result', result }).catch(() => {}),
       noteSighting: (handle) => chrome.runtime.sendMessage({ type: 'xsh:sighting', handle }).catch(() => {}),
     };
