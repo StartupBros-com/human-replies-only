@@ -100,6 +100,25 @@ async function startJob(kind, handle, account, now) {
   return job;
 }
 
+// Whether a job may still go ahead. Settings can change while its tab loads
+// and waits for a post: muting turned off, another account, a bot's row moved
+// off Mute on X, an account added to Always show. A mute job must still be for
+// an account muting may visit.
+async function stillWanted(job) {
+  const s = await settings();
+  if (!muting(s) || s.muteAccount !== job.account) return false;
+  if (job.kind !== 'mute') return true;
+  const list = await stored();
+  return L.muteEligible(list && list.handles, s).includes(job.handle);
+}
+
+// Drop a job unrecorded and close its tab. The visit it cost stays counted.
+async function dropJob(job) {
+  await clearJob();
+  chrome.alarms.clear(JOB_ALARM);
+  await chrome.tabs.remove(job.tabId).catch(() => {});
+}
+
 // Fold a job's result into the record, close its tab and set the next visit.
 async function finishJob(job, result) {
   const now = Date.now();
@@ -128,8 +147,7 @@ async function tick() {
   if (job) {
     if (!muting(s)) {
       // Turned off mid-job: drop it unrecorded.
-      await clearJob();
-      await chrome.tabs.remove(job.tabId).catch(() => {});
+      await dropJob(job);
       return;
     }
     if (now - job.startedAt >= L.DEFAULTS.muteTabTimeoutMs) {
@@ -198,9 +216,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     serial(async () => {
       const job = await getJob();
       if (!job || job.tabId !== tabId || job.claimed) return null;
+      if (!(await stillWanted(job))) {
+        await dropJob(job);
+        return null;
+      }
       await setJob(Object.assign({}, job, { claimed: true }));
       return job;
     }).then(sendResponse, () => sendResponse(null));
+    return true;
+  }
+  if (msg.type === 'xsh:job-go') {
+    // Asked by a mute job's tab just before it clicks Mute, up to a minute
+    // after it claimed the job. No means the job was dropped and its tab closed.
+    serial(async () => {
+      const job = await getJob();
+      if (!job || job.tabId !== tabId || job.id !== msg.id || !job.claimed) return false;
+      if (await stillWanted(job)) return true;
+      await dropJob(job);
+      return false;
+    }).then(sendResponse, () => sendResponse(false));
     return true;
   }
   if (msg.type === 'xsh:job-result') {
@@ -216,7 +250,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const s = await settings();
       const h = L.normalizeHandle(msg.handle);
       const list = await stored();
-      if (!muting(s) || !h || !(list && list.handles.includes(h))) return;
+      // Only an account muting may visit: listed or extra, not Always-show,
+      // and a bot only when its row says Mute on X.
+      if (!muting(s) || !h || !L.muteEligible(list && list.handles, s).includes(h)) return;
       await saveMutes(L.noteSighting(await mutesRec(), h));
     }).then(() => sendResponse(true), () => sendResponse(false));
     return true;

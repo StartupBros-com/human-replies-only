@@ -4,11 +4,13 @@
 
 x-slop-hide hides posts on x.com whose author is on
 [clankwall](https://clankwall.vogel.dev/)'s public list of AI-reply spam
-accounts, and can also mute those accounts on your X account.
+accounts, and can also mute those accounts on your X account. You can add
+accounts of your own, choose Show, Hide or Mute for each of six answer bots
+such as @grok and @AskPerplexity, and hide posts that tag one of those bots.
 
 Hiding works on the page in your desktop browser, in this browser profile
 only, and the Pause switch shows the posts again. Muting is off until you turn
-it on in the extension's popup. It then mutes up to 25 listed accounts a day by
+it on in the extension's popup. It then mutes up to 25 accounts a day by
 clicking X's own Mute on x.com, so the mutes apply in the X app too. It never
 blocks anyone, never unmutes, and does not use the X API. It is free and
 MIT-licensed.
@@ -91,20 +93,25 @@ whenever the tab comes back into view. The userscript does not mute.
 | To | In the extension popup | In the userscript menu |
 |---|---|---|
 | Show everything for a while | Tick **Pause hiding** | **Pause / resume hiding** |
-| See @grok's posts | Tick **Show @grok's replies** | **Show / hide @grok** |
 | Always see an account | Add its handle under **Always show these accounts**, then click **Save** | **Edit always-show list** |
+| Hide an account that is not on the list | Add its handle under **Also hide these accounts, and mute them when muting is on**, then click **Save** | **Edit extra accounts to hide** |
+| Show, hide or mute an answer bot | Pick **Show**, **Hide here** or **Mute on X** in its row under **Bots that answer when tagged** (see [Bots](#bots)) | **Show / hide @grok**, or **Show or hide a bot** for any of the six; there is no Mute |
+| Hide posts that tag a bot | Tick **Also hide posts that tag a bot set to Hide or Mute** | **Hide / show posts that tag a hidden bot** |
 | Fetch the list now | **Refresh list now** | **Refresh list now** |
 | Mute listed accounts on your X account | Tick **Mute listed accounts on X** (see [Muting](#muting)) | Not available |
 
-On an x.com tab, the popup also counts what it hid there: "This tab: N posts
-from M accounts hidden (K on screen now)." The userscript has no counter.
+**Save** saves both boxes at once. On an x.com tab, the popup also counts what
+it hid there: "This tab: N posts from M accounts hidden (K on screen now)", with
+", plus N posts that tag a bot" before the brackets when tag hiding hid any.
+The userscript has no counter.
 
 ## What gets hidden
 
-- A post is hidden when its own author is on the list. The author is read from
-  the post's name block, case-insensitively.
+- A post is hidden when its own author is on the list or in **Also hide these
+  accounts**. The author is read from the post's name block,
+  case-insensitively.
 - A post that quotes a listed account, or @-mentions one, stays visible. Only
-  the author counts.
+  the author counts, except for the bot tags described under [Bots](#bots).
 - A repost carries the original author's name block, so it should be judged by
   the original author and hidden when that author is listed. This has not been
   checked against a live repost yet.
@@ -112,12 +119,54 @@ from M accounts hidden (K on screen now)." The userscript has no counter.
   `/handle/with_replies`, one of its posts `/handle/status/...`, and so on),
   that account's posts stay visible, since you went there on purpose. Other
   listed accounts replying there are still hidden.
-- @grok is on the clankwall list, so its posts are hidden unless you turn on
-  **Show @grok's replies** in the popup (or **Show / hide @grok** in the
-  userscript menu). That switch shows all of @grok's posts and no other
-  account's.
 - Handles in **Always show these accounts** are never hidden, and
   **Pause hiding** shows every post until you untick it.
+
+### Bots
+
+The popup has a row for each of six accounts that answer when someone tags
+them: @grok (X's assistant), @AskPerplexity, @pangramlabs (an AI-text
+detector), @bot (xAI's Grok Bot), @threadreaderapp and @UnrollHelper (thread
+unrollers). Each row links to the bot's profile, where you can block it, and
+offers three choices:
+
+| Choice | The bot's own posts | With muting on |
+|---|---|---|
+| **Show** | Shown | Not muted |
+| **Hide here** | Hidden in this browser | Not muted |
+| **Mute on X** | Hidden in this browser | Muted on your X account, like a listed account |
+
+- A bot you have not set follows the list: **Hide here** if clankwall lists it
+  or it is in **Also hide these accounts**, **Show** if not. On the evening of
+  2026-11-06 (US Eastern) the list had 773 handles and @grok was the only one
+  of the six on it, so @grok starts at **Hide here** and the other five at
+  **Show**. A bot is never muted until you pick **Mute on X** in its row.
+- A bot in **Always show these accounts** is shown and never muted; its row is
+  locked to **Show**.
+- If you ticked **Show @grok's replies** in an earlier version, @grok's row
+  starts at **Show**.
+- On a bot's own pages its posts show, as on any account's.
+
+Ticking **Also hide posts that tag a bot set to Hide or Mute** also hides
+posts whose own text links one of the bots set to **Hide here** or **Mute on
+X**, such as a reply that reads "@grok is this true?". Then:
+
+- A tag inside a quoted post does not count, and neither does the "Replying
+  to" line above a post.
+- Your own posts, posts by Always-show accounts, posts on the author's own
+  pages, and posts on the pages of a bot set to **Hide here** or **Mute on X**
+  stay visible.
+- These posts are counted apart from the listed authors' posts, and their
+  authors are never muted for the tag.
+
+On 2026-11-06, in an X search for "@grok is this true", each of the 10 posts
+read had the `/grok` link in its own text and none in its "Replying to" line,
+which named the account being answered.
+
+All of this applies in this browser only. To keep a bot's replies out of the
+X apps as well, add its handle (such as @grok) as a
+[muted word](https://x.com/settings/muted_keywords) on X; x-slop-hide does not
+add muted words.
 
 ## Muting
 
@@ -137,7 +186,10 @@ risk for the account you mute from.
 
 1. Under **Always show these accounts**, add every listed account you never
    want muted, and click **Save**. Accounts there are never hidden and never
-   muted.
+   muted. Everything under **Also hide these accounts** is muted too, so take
+   out any account there that you only want hidden. The exception is one of
+   the six bots under [Bots](#bots): it follows its row, so it is muted only
+   when that row says **Mute on X**.
 2. Open x.com in a tab, logged in as the account to mute from.
 3. From that tab, open the popup and tick **Mute listed accounts on X**. The
    popup asks the tab which account is logged in and ties muting to that
@@ -163,13 +215,17 @@ and its tab closed. So one more mute can land just after you untick.
 - After every 5 mutes, and when the day's caps are reached or nothing is left
   to visit, it opens `x.com/settings/muted/all` the same way and checks that
   each new mute is listed there.
-- Listed accounts whose posts it hid while you browsed go first (it keeps the
-  latest 50), then the rest of the list in its order, then accounts being tried
-  again.
+- Accounts it may mute whose posts it hid while you browsed go first (it keeps
+  the latest 50), then the rest of the list in its order, then your extra
+  accounts in alphabetical order, then bots set to **Mute on X**, then
+  accounts being tried again.
 
-It never mutes @grok (muting it account-wide is a much bigger step than hiding
-its replies), an account in Always show, an account you follow, or an account
-that is not on the list. When X's menu offers "Unfollow @handle", x-slop-hide
+It mutes only accounts on the list, accounts under **Also hide these
+accounts**, and bots whose row says **Mute on X**. It never mutes a bot left at
+**Show** or **Hide here**, including @grok, which is on the list (muting it
+account-wide is a much bigger step than hiding its replies); an account in
+Always show; an account you follow; or someone whose post was hidden only for
+tagging a bot. When X's menu offers "Unfollow @handle", x-slop-hide
 records that you follow the account and moves on. An account that is already
 muted is recorded without a click. x-slop-hide never unmutes and never blocks.
 
@@ -345,6 +401,13 @@ reads (see [Limits](#limits)). Please open an issue.
   are updated; it fails open, not closed.
 - Only post cells are hidden. Notification rows that are not posts ("X liked
   your post") are not.
+- Tag hiding reads the profile links in a post's own text. A bot named without
+  a link, or named only in the "Replying to" line, is not seen.
+- Tag hiding waits until x.com shows which account is logged in (the profile
+  link in its sidebar) so that your own posts stay visible. Until then, and on
+  any layout without that link, posts that tag a bot are shown.
+- The six bot rows are fixed in the code. To hide another bot, add it under
+  **Also hide these accounts** (which also mutes it while muting is on).
 - Muting reads X's menu in English: "Mute @handle", "Unmute @handle",
   "Unfollow @handle". With X set to another language, every visit is refused
   and muting stops for the day.
@@ -378,8 +441,12 @@ Muting itself runs from the extension in a desktop browser.
 
 ### Can I hide an account that is not on the list?
 
-Not with x-slop-hide, which hides and mutes only listed authors. Mute the
-account on X.
+Yes. Add its handle under **Also hide these accounts, and mute them when muting
+is on** and click **Save** (in the userscript: **Edit extra accounts to
+hide**). While muting is on it is muted too; there is no hide-only setting for
+an extra account then. One of the six bots follows its row even when it is in
+this box, so it is muted only when that row says **Mute on X**; use the row
+instead (see [Bots](#bots)), which has **Hide here**.
 
 ### If an account leaves the list, is it unmuted?
 
@@ -404,9 +471,9 @@ pnpm run check       # userscript is current + parses + tests (what CI runs)
 ```
 
 - `src/lib.js`: pure logic, shared by every runtime and the tests: list
-  parsing and validation, the update guard, author detection, the hide rule
-  and the @grok switch, and muting's rules (which menu item to click, the
-  visit order, the daily caps and the mute record).
+  parsing and validation, the update guard, author detection, the hide rule,
+  the bot rows and tag hiding, and muting's rules (which menu item to click,
+  the visit order, the daily caps and the mute record).
 - `src/content.js`: the content script. It watches the page and marks the
   cells to hide. In a tab the background worker opened for a visit, it runs
   that one job (mute the profile's account, or read `settings/muted/all`) and
@@ -477,7 +544,8 @@ Also on 2026-11-06, version 0.2.0 ran in Chromium 156 the same way, twice:
   Ticking it showed @grok's post in an open x.com tab while the listed author
   stayed hidden; the box was still ticked when the popup reopened; unticking
   it hid @grok again. On @grok's own profile its posts showed with the switch
-  off. 9 of 9 checks passed: 8 on the extension and 1 setup check.
+  off. 9 of 9 checks passed: 8 on the extension and 1 setup check. Version
+  0.4.0 replaced that box with @grok's row under [Bots](#bots).
 
 Muting was tested on 2026-11-06 in two ways.
 
@@ -512,6 +580,27 @@ One run before those 6 failed a check. The likely cause is the test harness,
 which changed the worker's stored state outside the worker's own queue; it now
 goes through that queue. In an earlier run of the same setup, a visit tab that
 never answered was closed after 90 s and recorded as a failed visit.
+
+Version 0.4.0 ran the same way on 2026-11-06 and passed 35 of 35 checks on
+each of three runs, the last after the review fixes (each Mute click now waits
+for the worker's go-ahead). Besides the muting checks above (now 5 mutes and 7
+visits, with the check after the 5th mute), it checked:
+
+- The popup, opened as a page: six bot rows, @grok at **Hide here** and the
+  other five at **Show**, and no settings written by opening it. **Save** wrote
+  both boxes; a bot in Always show was locked to **Show**; picking **Mute on
+  X** for @AskPerplexity saved only that row; ticking the tag box saved it.
+- The user's timeline, with the tag box ticked: posts by a listed author and
+  by @grok were hidden, and so were a post tagging @grok and one tagging
+  @AskPerplexity in their own text. A post quoting a post that tagged @grok,
+  the user's own post tagging @grok, and a post tagging @pangramlabs (at
+  **Show**) stayed visible. The tab's count had the 2 tag posts apart from the
+  2 listed posts.
+- With muting on, only the listed author went to the front of the queue, not
+  @grok or the taggers. Visits went through the list, then the extra account,
+  then @AskPerplexity, each muted with one click. @grok, the bots at **Show**
+  or in Always show, the Always-show account and the taggers were never
+  visited.
 
 Not tested: Brave itself, Tampermonkey, Violentmonkey in Firefox, the 6-hour
 refresh actually firing, reposts, and the notifications page. For muting: the

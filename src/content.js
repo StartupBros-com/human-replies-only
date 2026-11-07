@@ -20,11 +20,14 @@
 
   let list = new Set();
   let allow = new Set();
+  let mentions = new Set(); // bots whose tags hide a post
   let paused = false;
   let muting = false;
   let lastPath = location.pathname;
+  let meUnknown = false; // a tagged post was left visible before whoAmI() answered
   const hiddenPosts = new Set(); // distinct posts hidden in this tab
   const hiddenAuthors = new Set();
+  const hiddenMentions = new Set(); // distinct posts hidden for tagging a bot
 
   function injectStyle() {
     if (document.getElementById('xsh-style')) return;
@@ -51,6 +54,19 @@
       hiddenAuthors.add(author);
       const k = postKey(article);
       if (k) hiddenPosts.add(k);
+      return;
+    }
+    // A post that tags a hidden bot. Not a sighting: its author is not listed.
+    const tagged = mentions.size ? L.mentionIn(article, mentions) : null;
+    // Until the sidebar shows who is logged in, the user's own posts cannot be
+    // told apart, so a tagged post stays visible; onMutations looks again then.
+    const who = tagged ? whoAmI() : null;
+    if (tagged && !who) meUnknown = true;
+    if (who && L.shouldHideMention(author, tagged, { allow, owner, paused, me: who.me, mentions })) {
+      const v = `mention:${tagged}`;
+      if (cell.getAttribute(ATTR) !== v) cell.setAttribute(ATTR, v);
+      const k = postKey(article);
+      if (k) hiddenMentions.add(k);
     } else if (cell.hasAttribute(ATTR)) {
       cell.removeAttribute(ATTR);
     }
@@ -69,6 +85,12 @@
   function onMutations(records) {
     if (location.pathname !== lastPath) {
       lastPath = location.pathname;
+      rescanAll();
+      return;
+    }
+    // The sidebar's profile link arrived after some tagged posts: look at them again.
+    if (meUnknown && whoAmI()) {
+      meUnknown = false;
       rescanAll();
       return;
     }
@@ -114,8 +136,10 @@
   }
 
   function applyState(s) {
-    list = new Set((s.list && s.list.handles) || []);
+    const handles = (s.list && s.list.handles) || [];
+    list = L.effectiveList(handles, s.settings);
     allow = L.effectiveAllow(s.settings);
+    mentions = L.mentionTargets(s.settings, handles);
     paused = !!(s.settings && s.settings.paused);
     muting = !!(s.settings && s.settings.muteEnabled);
     rescanAll();
@@ -139,6 +163,7 @@
       hiddenNow: document.querySelectorAll(`[${ATTR}]`).length,
       hiddenPosts: hiddenPosts.size,
       hiddenAuthors: [...hiddenAuthors].sort(),
+      hiddenMentions: hiddenMentions.size,
     };
   }
 
@@ -198,6 +223,11 @@
     const pick = L.chooseMuteItem(items.map(textOf), h);
     if (pick.action === 'done') return { status: pick.status };
     if (pick.action === 'refuse') return { status: pick.status, reason: pick.reason };
+    // Settings may have changed since this tab claimed the job; the worker
+    // answers no (and closes this tab) if the account is no longer to be muted.
+    if (!adapter.confirmJob || !(await adapter.confirmJob(job))) {
+      return { status: 'error', reason: 'the worker did not confirm the mute' };
+    }
     items[pick.index].click();
     const sheet = () => document.querySelector('[data-testid="confirmationSheetDialog"]');
     const toast = () => {
@@ -275,6 +305,8 @@
       },
       // The worker answers with a job only for a tab it opened for one.
       getJob: () => chrome.runtime.sendMessage({ type: 'xsh:job' }).catch(() => null),
+      confirmJob: (job) =>
+        chrome.runtime.sendMessage({ type: 'xsh:job-go', id: job.id }).then((ok) => ok === true, () => false),
       reportJob: (result) => chrome.runtime.sendMessage({ type: 'xsh:job-result', result }).catch(() => {}),
       noteSighting: (handle) => chrome.runtime.sendMessage({ type: 'xsh:sighting', handle }).catch(() => {}),
     };

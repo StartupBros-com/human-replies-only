@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { buildUserscript } from '../scripts/build-userscript.mjs';
-import { src, post, page, tick, lib } from './helpers.mjs';
+import { src, post, page, tick, lib, meLink } from './helpers.mjs';
 import { parseHTML } from 'linkedom';
 
 const many = (n) => Array.from({ length: n }, (_, i) => `h${i}`);
@@ -313,6 +313,27 @@ test('background: never visits @grok, the allowlist or settled accounts; account
   assert.deepEqual(visited, ['https://x.com/slop_c', 'https://x.com/slop_b']);
 });
 
+// Planted negative: @grok at its default never enters the queue, by sighting or by list.
+test('background: visits a bot only when its row says Mute on X, and extra accounts like listed ones', async () => {
+  const bg = await muteBackground({
+    handles: ['grok', 'slop_a'],
+    settings: { muteEnabled: true, muteAccount: ME, extraList: 'extra_a\nfriend', allowlist: 'friend', bots: { askperplexity: 'mute', bot: 'hide' } },
+  });
+  for (const h of ['grok', 'bot', 'friend', 'extra_a']) await send(bg, { type: 'xsh:sighting', handle: h }, 5);
+  assert.deepEqual(bg.chrome.store['xsh:mutes'].front, ['extra_a']);
+  const visited = [];
+  for (let i = 0; i < 6; i++) {
+    await alarm(bg);
+    const tab = lastTab(bg);
+    if (!tab || visited.includes(tab.url)) break;
+    visited.push(tab.url);
+    const job = await send(bg, { type: 'xsh:job' }, tab.id);
+    await send(bg, { type: 'xsh:job-result', result: { id: job.id, status: 'no-post' } }, tab.id);
+    due(bg);
+  }
+  assert.deepEqual(visited, ['https://x.com/extra_a', 'https://x.com/slop_a', 'https://x.com/askperplexity']);
+});
+
 test('background: after 5 mutes it checks settings/muted/all; a mute missing there stops the day', async () => {
   const five = ['m1', 'm2', 'm3', 'm4', 'm5'];
   const handles = Object.fromEntries(five.map((h) => [h, { status: 'muted', confirmed: null }]));
@@ -404,6 +425,56 @@ test('background: closing the job tab counts as an error; turning muting off mid
   assert.equal(bg.chrome.store['xsh:mutes'].handles.slop_a, undefined);
 });
 
+// Planted negatives: a settings change while the job's tab loads (before it
+// claims the job) or waits for a post (after) stops the click.
+test('background: a job whose account stops being eligible is dropped at the claim or just before the click', async () => {
+  const base = { muteEnabled: true, muteAccount: ME, bots: { askperplexity: 'mute' } };
+  const changes = [
+    { ...base, bots: { askperplexity: 'show' } },
+    { ...base, bots: { askperplexity: 'hide' } },
+    { ...base, allowlist: 'AskPerplexity' },
+    { ...base, muteAccount: 'someone_else' },
+  ];
+  for (const when of ['claim', 'click']) {
+    for (const next of changes) {
+      const bg = await muteBackground({ handles: [], settings: base });
+      await alarm(bg);
+      const tab = lastTab(bg);
+      assert.equal(tab.url, 'https://x.com/askperplexity');
+      let job = null;
+      if (when === 'click') {
+        job = await send(bg, { type: 'xsh:job' }, tab.id);
+        assert.equal(job.handle, 'askperplexity');
+        assert.equal(await send(bg, { type: 'xsh:job-go', id: job.id }, 999), false, 'another tab is told no');
+        assert.equal(await send(bg, { type: 'xsh:job-go', id: 'stale' }, tab.id), false, 'a stale id is told no');
+        assert.deepEqual(bg.chrome.tabs.removed, [], 'neither drops the job');
+      }
+      await bg.chrome.storage.local.set({ 'xsh:settings': next });
+      await settle();
+      if (when === 'claim') assert.equal(await send(bg, { type: 'xsh:job' }, tab.id), null, JSON.stringify(next));
+      else assert.equal(await send(bg, { type: 'xsh:job-go', id: job.id }, tab.id), false, JSON.stringify(next));
+      assert.deepEqual(bg.chrome.tabs.removed, [tab.id]);
+      assert.deepEqual(bg.chrome.session, {});
+      assert.equal(bg.chrome.alarmTable['xsh-job-timeout'], undefined);
+      const m = bg.chrome.store['xsh:mutes'];
+      assert.equal(m.handles.askperplexity, undefined, 'dropped unrecorded');
+      assert.equal(m.days[today()].visits, 1, 'the visit stays counted');
+    }
+  }
+});
+
+test('background: the click is confirmed while nothing has changed, once the job is claimed', async () => {
+  const bg = await muteBackground();
+  await alarm(bg);
+  const tab = lastTab(bg);
+  assert.equal(await send(bg, { type: 'xsh:job-go', id: 'any' }, tab.id), false, 'not before the claim');
+  const job = await send(bg, { type: 'xsh:job' }, tab.id);
+  assert.equal(await send(bg, { type: 'xsh:job-go', id: job.id }, tab.id), true);
+  assert.deepEqual(bg.chrome.tabs.removed, []);
+  await send(bg, { type: 'xsh:job-result', result: { id: job.id, status: 'muted' } }, tab.id);
+  assert.equal(bg.chrome.store['xsh:mutes'].handles.slop_a.status, 'muted');
+});
+
 test('background: a wrong-account or login report stops muting for the day', async () => {
   for (const status of ['wrong-account', 'login']) {
     const bg = await muteBackground();
@@ -451,13 +522,14 @@ function loadUserscript({
   const requests = [];
   const menu = {};
   const intervals = [];
+  let answer = () => null;
   const ctx = vm.createContext({
     window,
     document,
     MutationObserver,
     location: { pathname: '/home' },
     console,
-    prompt: () => null,
+    prompt: (q, d) => answer(q, d),
     setInterval: (fn, ms) => intervals.push({ fn, ms }),
     GM_getValue: (k, d) => (k in values ? structuredClone(values[k]) : d),
     GM_setValue: (k, v) => {
@@ -473,7 +545,8 @@ function loadUserscript({
     },
   });
   vm.runInContext(buildUserscript(), ctx, { filename: 'dist/x-slop-hide.user.js' });
-  return { window, document, values, requests, menu, intervals };
+  // `prompt(fn)` sets how the page's prompt() answers.
+  return { window, document, values, requests, menu, intervals, prompt: (fn) => (answer = fn) };
 }
 
 const gmOk = (body) => (req) =>
@@ -493,10 +566,13 @@ test('userscript: fetches via GM_xmlhttpRequest, caches, and hides listed author
     'Show / hide @grok',
     'Refresh list now',
     'Edit always-show list',
+    'Edit extra accounts to hide',
+    'Show or hide a bot',
+    'Hide / show posts that tag a hidden bot',
   ]);
 });
 
-test('userscript: the @grok menu item flips showGrok and the page follows', async () => {
+test("userscript: the @grok menu item flips @grok's row and the page follows", async () => {
   const us = loadUserscript({
     respond: gmOk('known_slop\ngrok\n'),
     cells: [post({ author: 'grok', status: '1' }), post({ author: 'known_slop', status: '2' })],
@@ -505,11 +581,60 @@ test('userscript: the @grok menu item flips showGrok and the page follows', asyn
   const hidden = (s) => us.document.querySelector(`[data-fixture="${s}"]`).hasAttribute('data-xsh-hidden');
   assert.deepEqual([hidden('1'), hidden('2')], [true, true]);
   us.menu['Show / hide @grok']();
-  assert.equal(us.values['xsh:settings'].showGrok, true);
+  assert.equal(us.values['xsh:settings'].bots.grok, 'show');
   assert.deepEqual([hidden('1'), hidden('2')], [false, true]);
   us.menu['Show / hide @grok']();
-  assert.equal(us.values['xsh:settings'].showGrok, false);
+  assert.equal(us.values['xsh:settings'].bots.grok, 'hide');
   assert.deepEqual([hidden('1'), hidden('2')], [true, true]);
+});
+
+test("userscript: a 0.3.0 user's showGrok is read as Show, and the menu flips it to Hide without deleting it", async () => {
+  const us = loadUserscript({
+    values: { 'xsh:settings': { showGrok: true } },
+    respond: gmOk('known_slop\ngrok\n'),
+    cells: [post({ author: 'grok', status: '1' })],
+  });
+  await settle();
+  const hidden = () => us.document.querySelector('[data-fixture="1"]').hasAttribute('data-xsh-hidden');
+  assert.equal(hidden(), false);
+  us.menu['Show / hide @grok']();
+  assert.deepEqual(us.values['xsh:settings'], { showGrok: true, bots: { grok: 'hide' } });
+  assert.equal(hidden(), true);
+});
+
+test('userscript: the bot, extra-accounts and tag menus save what the popup saves', async () => {
+  const answers = [];
+  const us = loadUserscript({
+    respond: gmOk('known_slop\n'),
+    cells: [
+      post({ author: 'askperplexity', status: '1' }),
+      post({ author: 'extra_a', status: '2' }),
+      post({ author: 'rando', mention: 'askperplexity', status: '3' }),
+      meLink('StartupBros'), // tag hiding waits for the logged-in account
+    ],
+  });
+  await settle();
+  const hidden = (s) => us.document.querySelector(`[data-fixture="${s}"]`).hasAttribute('data-xsh-hidden');
+  assert.deepEqual(['1', '2', '3'].map(hidden), [false, false, false]);
+  us.prompt((q) => {
+    answers.push(q);
+    return 'AskPerplexity hide';
+  });
+  us.menu['Show or hide a bot']();
+  assert.match(answers[0], /Now: @grok show, @AskPerplexity show, /);
+  assert.deepEqual(us.values['xsh:settings'].bots, { askperplexity: 'hide' });
+  us.prompt(() => 'askperplexity mute'); // the userscript cannot mute: ignored
+  us.menu['Show or hide a bot']();
+  us.prompt(() => 'someone hide'); // not a roster bot: ignored
+  us.menu['Show or hide a bot']();
+  assert.deepEqual(us.values['xsh:settings'].bots, { askperplexity: 'hide' });
+  us.prompt(() => '@Extra_A, bad handle!!');
+  us.menu['Edit extra accounts to hide']();
+  assert.equal(us.values['xsh:settings'].extraList, 'bad\nextra_a');
+  assert.deepEqual(['1', '2', '3'].map(hidden), [true, true, false]);
+  us.menu['Hide / show posts that tag a hidden bot']();
+  assert.equal(us.values['xsh:settings'].hideBotMentions, true);
+  assert.deepEqual(['1', '2', '3'].map(hidden), [true, true, true]);
 });
 
 // Run the real popup.js against popup.html with an in-memory chrome.storage.
@@ -525,24 +650,82 @@ function loadPopup(store) {
   return { window, document, chrome };
 }
 
-test('popup: the @grok checkbox shows and saves showGrok, keeping other settings', async () => {
+// The option a bot's row shows, read the way popup.js sets it.
+const rowMode = (p, h) => [...p.document.getElementById(`bot-${h}`).querySelectorAll('option')].find((o) => o.selected)?.value;
+function pick(p, h, mode) {
+  const sel = p.document.getElementById(`bot-${h}`);
+  const opts = [...sel.querySelectorAll('option')];
+  for (const o of opts) o.selected = false; // clear first: see setChoice in popup.js
+  opts.find((o) => o.value === mode).selected = true;
+  sel.dispatchEvent(new p.window.Event('change'));
+}
+
+test('popup: one row per bot, showing what applies now, without writing anything', async () => {
+  const settings = { allowlist: 'friend\nbot', showGrok: true };
   const p = loadPopup({
-    'xsh:list': { handles: ['grok'], fetchedAt: Date.now(), source: 'https://clankwall.vogel.dev/api/usernames.txt' },
-    'xsh:settings': { allowlist: 'friend', paused: false },
+    'xsh:list': { handles: ['grok', 'askperplexity'], fetchedAt: Date.now(), source: 'https://clankwall.vogel.dev/api/usernames.txt' },
+    'xsh:settings': settings,
   });
   await settle();
-  const box = p.document.getElementById('grok');
-  assert.equal(box.checked, false);
+  const rows = [...p.document.querySelectorAll('#bots .bot')];
+  assert.deepEqual(
+    rows.map((r) => r.querySelector('a').getAttribute('href')),
+    ['grok', 'AskPerplexity', 'pangramlabs', 'bot', 'threadreaderapp', 'UnrollHelper'].map((n) => `https://x.com/${n}`),
+  );
+  assert.deepEqual(
+    lib.BOTS.map((b) => rowMode(p, b.handle)),
+    ['show', 'hide', 'show', 'show', 'show', 'show'],
+    'showGrok reads as Show; a listed bot hides; the rest follow the list',
+  );
+  assert.equal(p.document.getElementById('bot-bot').disabled, true, 'Always-show locks the row to Show');
+  assert.equal(p.document.getElementById('bot-grok').disabled, false);
+  assert.equal(p.document.getElementById('mentions').checked, false);
+  assert.deepEqual(p.chrome.store['xsh:settings'], settings, 'rendering saves nothing');
+});
+
+test("popup: changing a bot's row saves only that bot, keeping other settings and bots", async () => {
+  const p = loadPopup({
+    'xsh:list': { handles: ['grok'], fetchedAt: Date.now(), source: 's' },
+    'xsh:settings': { allowlist: 'friend', muteEnabled: true, muteAccount: 'startupbros', showGrok: true, bots: { bot: 'hide' } },
+  });
+  await settle();
+  pick(p, 'askperplexity', 'mute');
+  await settle();
+  pick(p, 'grok', 'hide');
+  await settle();
+  assert.deepEqual(p.chrome.store['xsh:settings'], {
+    allowlist: 'friend',
+    muteEnabled: true,
+    muteAccount: 'startupbros',
+    showGrok: true,
+    bots: { bot: 'hide', askperplexity: 'mute', grok: 'hide' },
+  });
+  assert.equal(rowMode(p, 'grok'), 'hide', 'a saved row wins over showGrok');
+  assert.equal(rowMode(p, 'askperplexity'), 'mute');
+});
+
+test('popup: Save writes both boxes in one write; the tag box saves hideBotMentions', async () => {
+  const p = loadPopup({ 'xsh:list': { handles: [], fetchedAt: Date.now(), source: 's' }, 'xsh:settings': { paused: false } });
+  await settle();
+  const writes = [];
+  const set = p.chrome.storage.local.set;
+  p.chrome.storage.local.set = (o) => {
+    writes.push(structuredClone(o));
+    return set(o);
+  };
+  p.document.getElementById('allow').value = 'Friend, @pal';
+  p.document.getElementById('extra').value = '@Extra_B extra_a not!valid';
+  p.document.getElementById('save').dispatchEvent(new p.window.Event('click'));
+  await settle();
+  assert.equal(writes.length, 1);
+  assert.deepEqual(p.chrome.store['xsh:settings'], { paused: false, allowlist: 'friend\npal', extraList: 'extra_a\nextra_b' });
+  assert.equal(p.document.getElementById('extra').value, 'extra_a\nextra_b');
+  const box = p.document.getElementById('mentions');
   box.checked = true;
   box.dispatchEvent(new p.window.Event('change'));
   await settle();
-  assert.deepEqual(p.chrome.store['xsh:settings'], { allowlist: 'friend', paused: false, showGrok: true });
+  assert.equal(p.chrome.store['xsh:settings'].hideBotMentions, true);
   assert.equal(box.checked, true);
-  box.checked = false;
-  box.dispatchEvent(new p.window.Event('change'));
-  await settle();
-  assert.equal(p.chrome.store['xsh:settings'].showGrok, false);
-  assert.equal(box.checked, false);
 });
 
 test('popup: muting binds to the account logged in on this tab, and refuses without one', async () => {

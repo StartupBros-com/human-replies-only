@@ -72,15 +72,42 @@
     GM_addValueChangeListener(K.list, (_n, _o, _v, remote) => remote && notify());
     GM_addValueChangeListener(K.settings, (_n, _o, _v, remote) => remote && notify());
   }
+  // Set one bot's row. The userscript cannot mute, so it offers Show and Hide.
+  function setBot(handle, mode) {
+    const s = read().settings || {};
+    patchSettings({ bots: Object.assign({}, s.bots || {}, { [handle]: mode }) });
+  }
+  const botModes = () => {
+    const s = read();
+    return L.botModes(s.settings, s.list && s.list.handles);
+  };
+  const editHandles = (key, question) => {
+    const cur = read().settings[key] || '';
+    const next = prompt(question, cur.replace(/\n/g, ' '));
+    if (next != null) patchSettings({ [key]: [...L.parseAllowlist(next)].sort().join('\n') });
+  };
+
   if (typeof GM_registerMenuCommand === 'function') {
     GM_registerMenuCommand('Pause / resume hiding', () => patchSettings({ paused: !read().settings.paused }));
-    GM_registerMenuCommand('Show / hide @grok', () => patchSettings({ showGrok: read().settings.showGrok !== true }));
+    GM_registerMenuCommand('Show / hide @grok', () => setBot(L.GROK, botModes()[L.GROK] === 'show' ? 'hide' : 'show'));
     GM_registerMenuCommand('Refresh list now', () => refresh(true));
-    GM_registerMenuCommand('Edit always-show list', () => {
-      const cur = read().settings.allowlist || '';
-      const next = prompt('Accounts to always show (space or comma separated):', cur.replace(/\n/g, ' '));
-      if (next != null) patchSettings({ allowlist: [...L.parseAllowlist(next)].sort().join('\n') });
+    GM_registerMenuCommand('Edit always-show list', () =>
+      editHandles('allowlist', 'Accounts to always show (space or comma separated):'),
+    );
+    GM_registerMenuCommand('Edit extra accounts to hide', () =>
+      editHandles('extraList', 'Accounts to hide as well as the list (space or comma separated):'),
+    );
+    GM_registerMenuCommand('Show or hide a bot', () => {
+      const modes = botModes();
+      const now = L.BOTS.map((b) => `@${b.name} ${modes[b.handle]}`).join(', ');
+      const next = prompt(`Type a bot and show or hide, such as "askperplexity hide". Now: ${now}`, '');
+      const m = /^\s*@?([A-Za-z0-9_]{1,15})\s+(show|hide)\s*$/i.exec(next || '');
+      const bot = m && L.BOTS.find((b) => b.handle === m[1].toLowerCase());
+      if (bot) setBot(bot.handle, m[2].toLowerCase());
     });
+    GM_registerMenuCommand('Hide / show posts that tag a hidden bot', () =>
+      patchSettings({ hideBotMentions: read().settings.hideBotMentions !== true }),
+    );
   }
   // A tab can stay open for days through in-app navigation: check whether
   // the list is due on a timer, and again when the tab comes back into view

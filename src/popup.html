@@ -14,6 +14,11 @@
   textarea { width: 100%; box-sizing: border-box; font: 12px ui-monospace, monospace; }
   .row { display: flex; gap: 8px; margin-top: 8px; }
   button { padding: 4px 10px; }
+  h2 { font-size: 13px; margin: 10px 0 4px; }
+  .bot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0; }
+  .bot .who { min-width: 0; }
+  .bot .note { display: block; font-size: 11px; }
+  a { color: inherit; }
 </style>
 </head>
 <body>
@@ -22,17 +27,24 @@
 <p id="err" class="bad" hidden></p>
 <p id="tab" class="muted"></p>
 <label><input type="checkbox" id="paused"> Pause hiding</label>
-<label><input type="checkbox" id="grok"> Show @grok's replies (clankwall lists it)</label>
 <label for="allow">Always show these accounts (one handle per line)</label>
-<textarea id="allow" rows="4" spellcheck="false"></textarea>
+<textarea id="allow" rows="3" spellcheck="false"></textarea>
+<label for="extra">Also hide these accounts, and mute them when muting is on</label>
+<textarea id="extra" rows="3" spellcheck="false"></textarea>
 <div class="row">
   <button id="save">Save</button>
   <button id="refresh">Refresh list now</button>
 </div>
 <hr>
+<h2>Bots that answer when tagged</h2>
+<p class="muted">A bot you have not set follows the list: hidden if the list has it, shown if not. Mute on X happens only while muting below is on.</p>
+<div id="bots"></div>
+<label><input type="checkbox" id="mentions"> Also hide posts that tag a bot set to Hide or Mute</label>
+<p class="muted">This browser only. For the X apps too, add the bot's handle (such as @grok) as a <a href="https://x.com/settings/muted_keywords" target="_blank" rel="noopener">muted word on X</a>. To block a bot, open its profile from the list above.</p>
+<hr>
 <label><input type="checkbox" id="mute"> Mute listed accounts on X</label>
-<p class="muted">Mutes up to 25 a day, one every few minutes, in background tabs it opens and closes. It clicks X's own Mute, so the mutes reach the X apps too. It skips accounts you follow, @grok and the accounts above, and never unmutes.</p>
-<p class="muted">Add accounts you never want muted to the box above before turning this on.</p>
+<p class="muted">Mutes up to 25 a day, one every few minutes, in background tabs it opens and closes. It clicks X's own Mute, so the mutes reach the X apps too. It mutes the list, your extra accounts and any bot set to Mute on X. It skips accounts you follow, the Always-show accounts and every other bot, even one in your extra accounts, and never unmutes.</p>
+<p class="muted">Add accounts you never want muted to the Always-show box before turning this on.</p>
 <p class="bad">X's rules forbid "scripting the X website" and say: "The use of these techniques may result in the permanent suspension of your account." This switch is that.</p>
 <p id="muteErr" class="bad" hidden></p>
 <p id="muteState" class="muted"></p>

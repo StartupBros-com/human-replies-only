@@ -15,8 +15,8 @@ function profile(cells, { me = ME } = {}) {
   return page([me ? meLink(me) : '<button data-testid="loginButton">Log in</button>', ...cells]);
 }
 
-function muteRun({ items = MENU, cells = [postWithCaret({ author: H })], me = ME, confirmSheet = false, j = job() } = {}) {
-  const t = runContent(profile(cells, { me }), { pathname: `/${H}`, state: muting, job: j });
+function muteRun({ items = MENU, cells = [postWithCaret({ author: H })], me = ME, confirmSheet = false, j = job(), confirm = true } = {}) {
+  const t = runContent(profile(cells, { me }), { pathname: `/${H}`, state: muting, job: j, confirm });
   const clicks = wireMenu(t.document, { items, handle: H, confirmSheet });
   return { t, clicks };
 }
@@ -26,6 +26,18 @@ test('mute job: clicks the one exact Mute item and reports X\'s toast', async ()
   const r = await t.done;
   assert.deepEqual(clicks, ['Mute']);
   assert.deepEqual(r, { id: 'j1', status: 'muted', toast: `@${H} has been muted.Undo` });
+  assert.deepEqual(t.confirms, ['j1'], 'the worker was asked once, just before the click');
+});
+
+// Planted negative: settings changed after the tab claimed the job, so the
+// worker says no; nothing is clicked and the open menu is left to the worker.
+test('mute job: no click when the worker does not confirm', async () => {
+  const { t, clicks } = muteRun({ confirm: false });
+  const r = await t.done;
+  assert.deepEqual(clicks, []);
+  assert.equal(r.status, 'error');
+  assert.match(r.reason, /did not confirm/);
+  assert.deepEqual(t.confirms, ['j1']);
 });
 
 test('mute job: "Mute @handle" is the same item', async () => {
@@ -38,6 +50,7 @@ test('mute job: an Unmute item means already muted, and nothing is clicked', asy
   const { t, clicks } = muteRun({ items: [`Follow @${H}`, 'Unmute', `Block @${H}`] });
   assert.deepEqual(await t.done, { id: 'j1', status: 'already' });
   assert.deepEqual(clicks, []);
+  assert.deepEqual(t.confirms, [], 'nothing to click, nothing to ask');
 });
 
 test('mute job: an account the user follows is left alone', async () => {
