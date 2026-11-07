@@ -172,16 +172,79 @@
     return out;
   }
 
-  // X's own assistant. clankwall lists it, and people who tag it in a thread
-  // may want its answer, so it has its own switch. Off (hidden) by default.
+  // ------------------------------------------------------------------ bots
+  //
+  // Accounts that answer when a post tags them. People who tag one in a
+  // thread may want its answer, so each has its own row in the popup: Show,
+  // Hide here, or Mute on X. A bot with no choice saved follows the list:
+  // hidden when the list (or the user's extra accounts) has it, shown when
+  // not, and never muted. clankwall listed only @grok on 2026-11-06.
   const GROK = 'grok';
+  const BOTS = Object.freeze(
+    [
+      { handle: 'grok', name: 'grok', note: "X's assistant" },
+      { handle: 'askperplexity', name: 'AskPerplexity', note: "Perplexity's answer bot" },
+      { handle: 'pangramlabs', name: 'pangramlabs', note: 'AI-text detector' },
+      { handle: 'bot', name: 'bot', note: "xAI's Grok Bot" },
+      { handle: 'threadreaderapp', name: 'threadreaderapp', note: 'thread unroller' },
+      { handle: 'unrollhelper', name: 'UnrollHelper', note: 'thread unroller' },
+    ].map((b) => Object.freeze(b)),
+  );
+  const BOT_HANDLES = new Set(BOTS.map((b) => b.handle));
+  const BOT_MODES = Object.freeze(['show', 'hide', 'mute']);
 
-  // Handles that are never hidden: the user's allowlist, plus @grok when
-  // showGrok is on. The switch adds only @grok, never a wider allow.
-  function effectiveAllow(settings) {
+  // The choice saved for one bot, or null. 0.3.0's showGrok switch counts as
+  // choosing Show for @grok until its row is changed. Read only: nothing
+  // here rewrites stored settings.
+  function botChoice(settings, handle) {
     const s = settings || {};
-    const out = parseAllowlist(s.allowlist);
-    if (s.showGrok === true) out.add(GROK);
+    const saved = s.bots && typeof s.bots === 'object' ? s.bots[handle] : undefined;
+    if (BOT_MODES.includes(saved)) return saved;
+    if (handle === GROK && s.showGrok === true) return 'show';
+    return null;
+  }
+
+  // Each bot's mode as it applies now, keyed by handle: the saved choice,
+  // else what the list says. An Always-show entry wins over both.
+  function botModes(settings, listHandles) {
+    const s = settings || {};
+    const listed = new Set(listHandles || []);
+    for (const h of parseAllowlist(s.extraList)) listed.add(h);
+    const allow = parseAllowlist(s.allowlist);
+    const out = {};
+    for (const { handle } of BOTS) {
+      out[handle] = allow.has(handle) ? 'show' : botChoice(s, handle) || (listed.has(handle) ? 'hide' : 'show');
+    }
+    return out;
+  }
+
+  // Handles that are never hidden: the user's allowlist, plus each bot whose
+  // row is set to Show. A bot row adds only that bot, never a wider allow.
+  function effectiveAllow(settings) {
+    const out = parseAllowlist(settings && settings.allowlist);
+    for (const { handle } of BOTS) if (botChoice(settings, handle) === 'show') out.add(handle);
+    return out;
+  }
+
+  // Handles whose posts are hidden: the list, the user's extra accounts,
+  // and each bot whose row is set to Hide or Mute. effectiveAllow still wins.
+  function effectiveList(listHandles, settings) {
+    const out = new Set(listHandles || []);
+    for (const h of parseAllowlist(settings && settings.extraList)) out.add(h);
+    for (const { handle } of BOTS) {
+      const c = botChoice(settings, handle);
+      if (c === 'hide' || c === 'mute') out.add(handle);
+    }
+    return out;
+  }
+
+  // Bots whose tags hide a post: those hidden or muted now, when the user
+  // has turned on hiding posts that tag them. Empty otherwise.
+  function mentionTargets(settings, listHandles) {
+    const out = new Set();
+    if (!(settings && settings.hideBotMentions === true)) return out;
+    const modes = botModes(settings, listHandles);
+    for (const h of Object.keys(modes)) if (modes[h] !== 'show') out.add(h);
     return out;
   }
 
@@ -224,6 +287,32 @@
     if (ctx.allow && ctx.allow.has(author)) return false;
     // A listed account's own profile or post page was opened on purpose.
     if (ctx.owner && ctx.owner === author) return false;
+    return true;
+  }
+
+  // The first bot in `targets` that this post tags in its own text, or null.
+  // A tag is an @-link in the post's own tweetText; text inside a quoted post
+  // and the "Replying to" line (which X draws outside tweetText) do not count.
+  function mentionIn(article, targets) {
+    if (!article || !article.querySelectorAll || !targets || targets.size === 0) return null;
+    for (const t of article.querySelectorAll('[data-testid="tweetText"]')) {
+      if (insideQuoteCard(t, article)) continue;
+      for (const a of t.querySelectorAll('a[href]')) {
+        const m = PROFILE_HREF_RE.exec(a.getAttribute('href') || '');
+        if (m && targets.has(m[1].toLowerCase())) return m[1].toLowerCase();
+      }
+    }
+    return null;
+  }
+
+  // Whether a post by `author` that tags the bot `mentioned` is hidden. Never
+  // the user's own posts, an Always-show author's, or anything on the page of
+  // the author or of a tagged bot, since that page was opened on purpose.
+  function shouldHideMention(author, mentioned, ctx) {
+    if (!mentioned || !author || ctx.paused) return false;
+    if (ctx.allow && ctx.allow.has(author)) return false;
+    if (ctx.me && ctx.me === author) return false;
+    if (ctx.owner && (ctx.owner === author || (ctx.mentions && ctx.mentions.has(ctx.owner)))) return false;
     return true;
   }
 
@@ -277,21 +366,41 @@
     return true;
   }
 
+  // Accounts muting may visit, in order: the list, then the user's extra
+  // accounts, then bots whose row is set to Mute on X. Never an Always-show
+  // account, and never a bot whose row says anything else: muting one
+  // account-wide is a much bigger step than hiding its replies, so a bot is
+  // muted only when the user picked that for it.
+  function muteEligible(listHandles, settings) {
+    const allow = parseAllowlist(settings && settings.allowlist);
+    const extra = [...parseAllowlist(settings && settings.extraList)].sort();
+    const bots = BOTS.map((b) => b.handle).filter((h) => botChoice(settings, h) === 'mute');
+    const out = [];
+    const seen = new Set();
+    for (const h of [...(listHandles || []), ...extra, ...bots]) {
+      if (seen.has(h)) continue;
+      seen.add(h);
+      if (allow.has(h)) continue;
+      if (BOT_HANDLES.has(h) && botChoice(settings, h) !== 'mute') continue;
+      out.push(h);
+    }
+    return out;
+  }
+
   // Accounts to visit, in order: those seen while browsing first, then the
-  // list, then accounts being tried again. Never the allowlist, never @grok
-  // (muting it account-wide is a much bigger step than hiding its replies),
-  // never an account already settled.
+  // rest of muteEligible, then accounts being tried again. Never an account
+  // already settled.
   function muteCandidates(listHandles, settings, rec) {
     const r = rec || emptyMutes();
-    const allow = parseAllowlist(settings && settings.allowlist);
-    const listed = new Set(listHandles || []);
+    const eligible = muteEligible(listHandles, settings);
+    const ok = new Set(eligible);
     const fresh = [];
     const retry = [];
     const seen = new Set();
-    for (const h of [...(r.front || []), ...(listHandles || [])]) {
+    for (const h of [...(r.front || []), ...eligible]) {
       if (seen.has(h)) continue;
       seen.add(h);
-      if (!listed.has(h) || h === GROK || allow.has(h)) continue;
+      if (!ok.has(h)) continue;
       const st = r.handles[h];
       if (isSettled(st)) continue;
       (st ? retry : fresh).push(h);
@@ -441,14 +550,23 @@
     isRefreshDue,
     parseAllowlist,
     GROK,
+    BOTS,
+    BOT_MODES,
+    botChoice,
+    botModes,
     effectiveAllow,
+    effectiveList,
+    mentionTargets,
     insideQuoteCard,
     authorHandleOf,
     pageOwner,
     shouldHide,
+    mentionIn,
+    shouldHideMention,
     utcDay,
     chooseMuteItem,
     emptyMutes,
+    muteEligible,
     muteCandidates,
     muteBudget,
     recordOutcome,

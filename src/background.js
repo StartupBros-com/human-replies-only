@@ -216,7 +216,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const s = await settings();
       const h = L.normalizeHandle(msg.handle);
       const list = await stored();
-      if (!muting(s) || !h || !(list && list.handles.includes(h))) return;
+      // Only an account muting may visit: listed or extra, not Always-show,
+      // and a bot only when its row says Mute on X.
+      if (!muting(s) || !h || !L.muteEligible(list && list.handles, s).includes(h)) return;
       await saveMutes(L.noteSighting(await mutesRec(), h));
     }).then(() => sendResponse(true), () => sendResponse(false));
     return true;

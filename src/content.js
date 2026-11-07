@@ -20,11 +20,13 @@
 
   let list = new Set();
   let allow = new Set();
+  let mentions = new Set(); // bots whose tags hide a post
   let paused = false;
   let muting = false;
   let lastPath = location.pathname;
   const hiddenPosts = new Set(); // distinct posts hidden in this tab
   const hiddenAuthors = new Set();
+  const hiddenMentions = new Set(); // distinct posts hidden for tagging a bot
 
   function injectStyle() {
     if (document.getElementById('xsh-style')) return;
@@ -51,6 +53,16 @@
       hiddenAuthors.add(author);
       const k = postKey(article);
       if (k) hiddenPosts.add(k);
+      return;
+    }
+    // A post that tags a hidden bot. Not a sighting: its author is not listed.
+    const tagged = mentions.size ? L.mentionIn(article, mentions) : null;
+    const me = tagged ? (whoAmI() || {}).me : null;
+    if (tagged && L.shouldHideMention(author, tagged, { allow, owner, paused, me, mentions })) {
+      const v = `mention:${tagged}`;
+      if (cell.getAttribute(ATTR) !== v) cell.setAttribute(ATTR, v);
+      const k = postKey(article);
+      if (k) hiddenMentions.add(k);
     } else if (cell.hasAttribute(ATTR)) {
       cell.removeAttribute(ATTR);
     }
@@ -114,8 +126,10 @@
   }
 
   function applyState(s) {
-    list = new Set((s.list && s.list.handles) || []);
+    const handles = (s.list && s.list.handles) || [];
+    list = L.effectiveList(handles, s.settings);
     allow = L.effectiveAllow(s.settings);
+    mentions = L.mentionTargets(s.settings, handles);
     paused = !!(s.settings && s.settings.paused);
     muting = !!(s.settings && s.settings.muteEnabled);
     rescanAll();
@@ -139,6 +153,7 @@
       hiddenNow: document.querySelectorAll(`[${ATTR}]`).length,
       hiddenPosts: hiddenPosts.size,
       hiddenAuthors: [...hiddenAuthors].sort(),
+      hiddenMentions: hiddenMentions.size,
     };
   }
 

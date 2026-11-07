@@ -14,7 +14,9 @@ export const tick = () => new Promise((r) => setTimeout(r, 0));
 // A post shaped like x.com's markup as observed live on 2026-11-03: the
 // author's links sit in the first [data-testid="User-Name"]; a quoted post is a
 // [role="link"] card inside the article carrying its own User-Name block.
-export function post({ author, quote = null, mention = null, status = '1', authorBlock = true }) {
+// `mention` tags an account in the post's own text; `quoteMention` tags one in
+// the quoted post's text only (an "@grok is this true?" seen through a quote).
+export function post({ author, quote = null, mention = null, quoteMention = null, status = '1', authorBlock = true }) {
   const userName = authorBlock
     ? `<div data-testid="User-Name"><div><a href="/${author}" role="link"><span>Name</span></a></div>` +
       `<div><a href="/${author}" role="link" tabindex="-1"><span>@${author}</span></a>` +
@@ -23,7 +25,7 @@ export function post({ author, quote = null, mention = null, status = '1', autho
   const text = `<div data-testid="tweetText"><span>hello </span>${mention ? `<a href="/${mention}" role="link">@${mention}</a>` : ''}</div>`;
   const quoteCard = quote
     ? `<div role="link" tabindex="0"><div data-testid="User-Name"><a href="/${quote}"><span>@${quote}</span></a></div>` +
-      `<div data-testid="tweetText">quoted text</div></div>`
+      `<div data-testid="tweetText">quoted text${quoteMention ? ` <a href="/${quoteMention}" role="link">@${quoteMention}</a>` : ''}</div></div>`
     : '';
   return (
     `<div data-testid="cellInnerDiv" data-fixture="${status}"><div><article data-testid="tweet" role="article" tabindex="0">` +

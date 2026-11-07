@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
-import { lib, post, page, runContent, stateWith, tick } from './helpers.mjs';
+import { lib, post, page, runContent, stateWith, tick, meLink } from './helpers.mjs';
 
 const LIST = ['known_slop', 'fake_slop', 'grok'];
 
@@ -245,4 +245,81 @@ test('a hidden cell emptied while detached is cleared when reinserted in a later
   assert.equal(t.content.stats().hiddenNow, 0);
   assert.equal(t.content.stats().hiddenPosts, 1);
   assert.deepEqual(Array.from(t.content.stats().hiddenAuthors), ['known_slop']);
+});
+
+// ------------------------------------------------------------------ bots
+
+test('mentionIn reads tags in the post text only, never in a quoted post', () => {
+  const targets = new Set(['grok', 'askperplexity']);
+  assert.equal(lib.mentionIn(article(post({ author: 'rando', mention: 'Grok' })), targets), 'grok');
+  assert.equal(lib.mentionIn(article(post({ author: 'rando', mention: 'friend' })), targets), null);
+  assert.equal(lib.mentionIn(article(post({ author: 'rando', quote: 'other', quoteMention: 'grok' })), targets), null);
+  assert.equal(lib.mentionIn(article(post({ author: 'rando', mention: 'grok' })), new Set()), null);
+});
+
+const mentionPage = () =>
+  page([
+    post({ author: 'rando', mention: 'grok', status: '1' }),
+    post({ author: 'rando', quote: 'other', quoteMention: 'grok', status: '2' }),
+    post({ author: 'rando', mention: 'askperplexity', status: '3' }),
+    post({ author: 'friend', mention: 'grok', status: '4' }),
+    post({ author: 'startupbros', mention: 'grok', status: '5' }),
+    post({ author: 'grok', status: '6' }),
+    meLink('StartupBros'),
+  ]);
+
+// Planted negatives: a post that only quotes a post tagging @grok stays
+// visible, and so does a post tagging @AskPerplexity while it is set to Show.
+test('posts that tag a hidden bot are hidden only while hideBotMentions is on', async () => {
+  const t = runContent(mentionPage(), { state: stateWith(LIST, { allowlist: 'friend', muteEnabled: true }) });
+  await tick();
+  const ids = ['1', '2', '3', '4', '5', '6'];
+  assert.deepEqual(ids.map(t.hidden), [false, false, false, false, false, true], 'off: only @grok itself, a listed author');
+  t.push(stateWith(LIST, { allowlist: 'friend', muteEnabled: true, hideBotMentions: true }));
+  assert.deepEqual(ids.map(t.hidden), [true, false, false, false, false, true]);
+  assert.equal(t.document.querySelector('[data-fixture="1"]').getAttribute('data-xsh-hidden'), 'mention:grok');
+  t.push(stateWith(LIST, { allowlist: 'friend', muteEnabled: true, hideBotMentions: true, bots: { askperplexity: 'hide' } }));
+  assert.deepEqual(ids.map(t.hidden), [true, false, true, false, false, true]);
+  t.push(stateWith(LIST, { allowlist: 'friend', muteEnabled: true, hideBotMentions: true, bots: { askperplexity: 'show', grok: 'show' } }));
+  assert.deepEqual(ids.map(t.hidden), [false, false, false, false, false, false]);
+  t.push(stateWith(LIST, { allowlist: 'friend', muteEnabled: true, hideBotMentions: true, paused: true }));
+  assert.deepEqual(ids.map(t.hidden), [false, false, false, false, false, false]);
+});
+
+test('a mention hide is not a sighting and does not count the author as hidden', async () => {
+  const t = runContent(mentionPage(), { state: stateWith(LIST, { muteEnabled: true, hideBotMentions: true }) });
+  await tick();
+  const s = t.content.stats();
+  assert.equal(s.hiddenMentions, 2, 'posts 1 and 4: friend is not on the allowlist here');
+  assert.equal(s.hiddenPosts, 1, 'post 6, by @grok');
+  assert.deepEqual(Array.from(s.hiddenAuthors), ['grok']);
+  assert.deepEqual(t.sightings, ['grok'], "only @grok's own post; the background decides whether it may be muted");
+});
+
+test("on a bot's own page, posts that tag it stay visible", async () => {
+  const t = runContent(mentionPage(), { pathname: '/grok/with_replies', state: stateWith(LIST, { hideBotMentions: true }) });
+  await tick();
+  assert.deepEqual(['1', '6'].map(t.hidden), [false, false]);
+});
+
+test('extra accounts are hidden like listed ones, and Always-show still wins', async () => {
+  const t = runContent(page([post({ author: 'extra_a', status: '1' }), post({ author: 'friend', status: '2' })]), {
+    state: stateWith(LIST, { extraList: 'Extra_A\nfriend' }),
+  });
+  await tick();
+  assert.deepEqual([t.hidden('1'), t.hidden('2')], [true, true]);
+  t.push(stateWith(LIST, { extraList: 'Extra_A\nfriend', allowlist: 'friend' }));
+  assert.deepEqual([t.hidden('1'), t.hidden('2')], [true, false]);
+});
+
+test("a bot's row decides whether its own posts hide", async () => {
+  const t = runContent(page([post({ author: 'grok', status: '1' }), post({ author: 'askperplexity', status: '2' })]), {
+    state: stateWith(LIST),
+  });
+  await tick();
+  assert.deepEqual([t.hidden('1'), t.hidden('2')], [true, false]);
+  t.push(stateWith(LIST, { bots: { grok: 'show', askperplexity: 'mute' } }));
+  assert.deepEqual([t.hidden('1'), t.hidden('2')], [false, true]);
+  t.push(stateWith(LIST, { showGrok: true, bots: { grok: 'hide' } }));
+  assert.deepEqual([t.hidden('1'), t.hidden('2')], [true, false]);
 });

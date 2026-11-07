@@ -48,8 +48,10 @@
     $('err').hidden = !rec.lastError;
     $('err').textContent = rec.lastError ? `Last refresh failed (${ago(rec.lastAttemptAt)}): ${rec.lastError}. Still using the previous list.` : '';
     $('paused').checked = !!s.paused;
-    $('grok').checked = s.showGrok === true;
     if (document.activeElement !== $('allow')) $('allow').value = s.allowlist || '';
+    if (document.activeElement !== $('extra')) $('extra').value = s.extraList || '';
+    renderBots(s, rec.handles);
+    $('mentions').checked = s.hideBotMentions === true;
 
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     $('tab').textContent = 'Open x.com in this tab to see what was hidden.';
@@ -57,9 +59,10 @@
       try {
         const st = await chrome.tabs.sendMessage(tab.id, { type: 'xsh:stats' });
         if (st) {
+          const tags = st.hiddenMentions ? `, plus ${st.hiddenMentions} posts that tag a bot` : '';
           $('tab').textContent = st.paused
             ? 'Paused on this tab.'
-            : `This tab: ${st.hiddenPosts} posts from ${st.hiddenAuthors.length} accounts hidden (${st.hiddenNow} on screen now).`;
+            : `This tab: ${st.hiddenPosts} posts from ${st.hiddenAuthors.length} accounts hidden${tags} (${st.hiddenNow} on screen now).`;
         }
       } catch (_) {
         // No content script in this tab (not x.com).
@@ -70,6 +73,69 @@
   async function saveSettings(patch) {
     const o = await chrome.storage.local.get(K.settings);
     await chrome.storage.local.set({ [K.settings]: Object.assign({}, o[K.settings] || {}, patch) });
+  }
+
+  // One row per bot: a link to its profile (for a manual block) and a
+  // Show / Hide here / Mute on X choice. Built once; render sets the values.
+  const LABELS = { show: 'Show', hide: 'Hide here', mute: 'Mute on X' };
+  // Through the options, not select.value, and clearing before selecting:
+  // the test DOM (linkedom) has a read-only select.value and loses a
+  // selection when a later option is set to false.
+  const options = (sel) => [...sel.querySelectorAll('option')];
+  const setChoice = (sel, v) => {
+    for (const o of options(sel)) o.selected = false;
+    const hit = options(sel).find((o) => o.value === v);
+    if (hit) hit.selected = true;
+  };
+  const choiceOf = (sel) => (options(sel).find((o) => o.selected) || {}).value;
+  function buildBots() {
+    for (const b of L.BOTS) {
+      const row = document.createElement('div');
+      row.className = 'bot';
+      const who = document.createElement('span');
+      who.className = 'who';
+      const a = document.createElement('a');
+      a.href = `https://x.com/${b.name}`;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = `@${b.name}`;
+      const note = document.createElement('span');
+      note.className = 'note muted';
+      note.textContent = b.note;
+      who.append(a, note);
+      const sel = document.createElement('select');
+      sel.id = `bot-${b.handle}`;
+      sel.setAttribute('aria-label', `@${b.name}`);
+      for (const m of L.BOT_MODES) {
+        const o = document.createElement('option');
+        o.value = m;
+        o.textContent = LABELS[m];
+        sel.append(o);
+      }
+      sel.addEventListener('change', async () => {
+        const mode = choiceOf(sel);
+        if (!L.BOT_MODES.includes(mode)) return;
+        const o = await chrome.storage.local.get(K.settings);
+        const cur = o[K.settings] || {};
+        await saveSettings({ bots: Object.assign({}, cur.bots || {}, { [b.handle]: mode }) });
+        render();
+      });
+      row.append(who, sel);
+      $('bots').append(row);
+    }
+  }
+
+  // An Always-show entry wins over a bot's row, so the row is locked to Show.
+  function renderBots(s, handles) {
+    const modes = L.botModes(s, handles);
+    const allow = L.parseAllowlist(s.allowlist);
+    for (const b of L.BOTS) {
+      const sel = $(`bot-${b.handle}`);
+      if (!sel || document.activeElement === sel) continue;
+      setChoice(sel, modes[b.handle]);
+      sel.disabled = allow.has(b.handle);
+      sel.title = sel.disabled ? 'In your Always-show list' : '';
+    }
   }
 
   // Turning muting on binds it to the account logged in on this tab's x.com;
@@ -100,11 +166,15 @@
   });
 
   $('paused').addEventListener('change', (e) => saveSettings({ paused: e.target.checked }).then(render));
-  $('grok').addEventListener('change', (e) => saveSettings({ showGrok: e.target.checked }).then(render));
+  $('mentions').addEventListener('change', (e) => saveSettings({ hideBotMentions: e.target.checked }).then(render));
+  // One write for both boxes, so neither can overwrite the other with a stale value.
   $('save').addEventListener('click', () => {
-    const cleaned = [...L.parseAllowlist($('allow').value)].sort().join('\n');
-    $('allow').value = cleaned;
-    saveSettings({ allowlist: cleaned }).then(render);
+    const clean = (id) => [...L.parseAllowlist($(id).value)].sort().join('\n');
+    const allowlist = clean('allow');
+    const extraList = clean('extra');
+    $('allow').value = allowlist;
+    $('extra').value = extraList;
+    saveSettings({ allowlist, extraList }).then(render);
   });
   $('refresh').addEventListener('click', async () => {
     $('refresh').disabled = true;
@@ -118,5 +188,6 @@
     }
   });
 
+  buildBots();
   render();
 })();
