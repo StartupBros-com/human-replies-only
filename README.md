@@ -125,7 +125,7 @@ The userscript has no counter.
 ### Bots
 
 The popup has a row for each of six accounts that answer when someone tags
-them: @grok (X's assistant), @AskPerplexity, @pangramlabs (an AI-text
+them: @grok (X's assistant), @AskPerplexity, @pangram (an AI-text
 detector), @bot (xAI's Grok Bot), @threadreaderapp and @UnrollHelper (thread
 unrollers). Each row links to the bot's profile, where you can block it, and
 offers three choices:
@@ -182,9 +182,9 @@ account." (read on 2026-11-06, unchanged on 2026-11-08). Muting with
 x-slop-hide scripts the X website, and the popup says so next to the switch.
 Turn it on only if you accept that risk for the account you mute from.
 
-A listing can be a mistake: clankwall says it is "not proof of authorship",
-and x-slop-hide mutes every listed account it reaches, including one listed by
-mistake. Accounts you follow are skipped. Look through the
+A listing can be a mistake (clankwall's homepage says "Flags aren’t proof of
+AI use."), and x-slop-hide mutes every listed account it reaches, including
+one listed by mistake. Accounts you follow are skipped. Look through the
 [list](https://clankwall.vogel.dev/api/usernames.txt) for accounts you know
 and add them to **Always show** first: undoing a mute means unmuting the
 account on X yourself, because x-slop-hide never unmutes.
@@ -277,12 +277,13 @@ check found it on your muted list.
 
 ## Whose list is it?
 
-The list is clankwall's, not this project's. clankwall says its list is "not
-proof of authorship" and states no licence or uptime terms. x-slop-hide fetches
-it at run time and does not copy it into this repository.
+The list is clankwall's, not this project's. clankwall's homepage says "Flags
+aren’t proof of AI use." and states no licence or uptime terms. x-slop-hide
+fetches it at run time and does not copy it into this repository.
 
-If you think an account is listed by mistake, clankwall's homepage says: "To
-dispute your listing, email dispute-spam@ryan.ceo" (as of 2026-11-06).
+If you think an account is listed by mistake, clankwall's homepage has a
+Request removal form (it says requests are "Logged for review, not removed
+automatically.") and links dispute-spam@ryan.ceo (read on 2026-11-08).
 x-slop-hide cannot remove anyone from the list. To see an account anyway, add
 it to Always show; that also keeps it from being muted.
 

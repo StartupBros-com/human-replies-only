@@ -107,6 +107,10 @@ visits, with the check after the 5th mute), it checked:
   or in Always show, the Always-show account and the taggers were never
   visited.
 
+Version 0.4.1 changed the Pangram row from @pangramlabs, which is not an X
+account, to @pangram. That change ran in the unit and wiring tests only, not
+in a browser.
+
 ## In daily use
 
 Since 2026-11-07 (UTC) the extension has run in Brave on Windows, on the

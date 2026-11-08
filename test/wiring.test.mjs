@@ -670,7 +670,7 @@ test('popup: one row per bot, showing what applies now, without writing anything
   const rows = [...p.document.querySelectorAll('#bots .bot')];
   assert.deepEqual(
     rows.map((r) => r.querySelector('a').getAttribute('href')),
-    ['grok', 'AskPerplexity', 'pangramlabs', 'bot', 'threadreaderapp', 'UnrollHelper'].map((n) => `https://x.com/${n}`),
+    ['grok', 'AskPerplexity', 'pangram', 'bot', 'threadreaderapp', 'UnrollHelper'].map((n) => `https://x.com/${n}`),
   );
   assert.deepEqual(
     lib.BOTS.map((b) => rowMode(p, b.handle)),
