@@ -124,8 +124,9 @@ the 35 above, with @pangram in place of @pangramlabs, and 5 on the popup's
 folded sections. Both folds started closed and showed their counts ("Show 5 ·
 Hide here 1 · Mute on X 0"), the popup was 483 pixels tall, clicking each
 summary opened it, and both counts followed **Save** and the bot rows. The
-runner's first wait now accepts a bot row hidden in a closed fold. Neither the
-popup nor the icon has been opened in Brave yet.
+runner's first wait now accepts a bot row hidden in a closed fold. Later on
+2026-11-08 the maintainer reloaded 0.4.1 in Brave and reported that the popup
+looked right. A bot row set to **Mute on X** has not run in Brave yet.
 
 ## In daily use
 
