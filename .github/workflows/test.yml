@@ -10,12 +10,10 @@ permissions:
 
 jobs:
   test:
-    # Not `ubuntu-latest`: GitHub-hosted runs in this org are refused with "the
-    # job was not started because recent account payments have failed".
-    # `light` is the org-level ARC scale set whose runner group is visible to
-    # all repos, so no per-repo registration is needed. Nothing here needs a
-    # credential.
-    runs-on: light
+    # While the repo is private, the org's self-hosted `light` runners; once it
+    # is public, GitHub-hosted runners, so pull requests from forks never run on
+    # a self-hosted machine. Nothing here needs a credential.
+    runs-on: ${{ github.event.repository.private && 'light' || 'ubuntu-24.04' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
