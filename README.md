@@ -21,9 +21,9 @@ it on.
 
 The list is read from `https://clankwall.vogel.dev/api/usernames.txt`, the
 "Plain text" link under clankwall's "AI flags" heading. It held 369 handles on
-2026-11-03 and 767 on 2026-11-06. clankwall's separate "Spam flags" table
-(2,738 accounts on 2026-11-06) is not used. x-slop-hide does not maintain the
-list; see [Whose list is it?](#whose-list-is-it).
+2026-11-03, 767 on 2026-11-06 and 773 on 2026-11-08. clankwall's separate
+"Spam flags" table (2,738 accounts on 2026-11-06) is not used. x-slop-hide
+does not maintain the list; see [Whose list is it?](#whose-list-is-it).
 
 To install, open the
 [userscript](https://raw.githubusercontent.com/StartupBros-com/x-slop-hide/main/dist/x-slop-hide.user.js)
@@ -35,8 +35,8 @@ the extension mutes; the userscript hides.
 
 On 2026-11-03, on a reply thread with 251 replies, x-slop-hide hid 12 of the
 118 distinct posts that loaded. All 12 were by listed authors, and no post by a
-listed author was left showing. [Tested](#tested) has the method and three more
-pages.
+listed author was left showing. [docs/TESTING.md](docs/TESTING.md) has the
+method and three more pages.
 
 ## Hide, mute or block
 
@@ -47,7 +47,7 @@ Mute and Block, act on your X account.
 |---|---|---|---|---|
 | Changes your X account | No | Yes: it is X's Mute | Yes | Yes |
 | Applies in the X app | No | Yes | Yes | Yes |
-| Covering a list of hundreds | Install once; the list refreshes itself | Up to 25 accounts a day, so the 767 listed on 2026-11-06 take about a month | Mute each account from its post or profile | Block each account from its post or profile |
+| Covering a list of hundreds | Install once; the list refreshes itself | Up to 25 accounts a day, so the 773 listed on 2026-11-08 take about a month | Mute each account from its post or profile | Block each account from its post or profile |
 | The account can find out | No | No, as with Mute on X | No: "Muted accounts will not know that you've muted them" | Yes: if it visits your profile, "they will see they have been blocked" |
 | Undo | Pause, or add the handle to Always show | Unmute each account on X; x-slop-hide never unmutes | Unmute each account | Unblock each account |
 
@@ -137,10 +137,10 @@ offers three choices:
 | **Mute on X** | Hidden in this browser | Muted on your X account, like a listed account |
 
 - A bot you have not set follows the list: **Hide here** if clankwall lists it
-  or it is in **Also hide these accounts**, **Show** if not. On the evening of
-  2026-11-06 (US Eastern) the list had 773 handles and @grok was the only one
-  of the six on it, so @grok starts at **Hide here** and the other five at
-  **Show**. A bot is never muted until you pick **Mute on X** in its row.
+  or it is in **Also hide these accounts**, **Show** if not. On 2026-11-08 the
+  list had 773 handles and @grok was the only one of the six on it, so @grok
+  starts at **Hide here** and the other five at **Show**. A bot is never muted
+  until you pick **Mute on X** in its row.
 - A bot in **Always show these accounts** is shown and never muted; its row is
   locked to **Show**.
 - If you ticked **Show @grok's replies** in an earlier version, @grok's row
@@ -178,9 +178,16 @@ Under "Don't!", X's
 [automation rules](https://help.x.com/en/rules-and-policies/x-automation)
 list: "Use non-API-based forms of automation, such as scripting the X website.
 The use of these techniques may result in the permanent suspension of your
-account." (read on 2026-11-06). Muting with x-slop-hide scripts the X website,
-and the popup says so next to the switch. Turn it on only if you accept that
-risk for the account you mute from.
+account." (read on 2026-11-06, unchanged on 2026-11-08). Muting with
+x-slop-hide scripts the X website, and the popup says so next to the switch.
+Turn it on only if you accept that risk for the account you mute from.
+
+A listing can be a mistake: clankwall says it is "not proof of authorship",
+and x-slop-hide mutes every listed account it reaches, including one listed by
+mistake. Accounts you follow are skipped. Look through the
+[list](https://clankwall.vogel.dev/api/usernames.txt) for accounts you know
+and add them to **Always show** first: undoing a mute means unmuting the
+account on X yourself, because x-slop-hide never unmutes.
 
 ### Turning it on
 
@@ -210,8 +217,10 @@ and its tab closed. So one more mute can land just after you untick.
   button, opens that menu, and clicks the item labelled exactly
   "Mute @handle" (or "Mute"). It waits for X's "has been muted" notice, then
   closes the tab.
-- One tab at a time, 1 to 3 minutes apart, and at most 25 mutes and 50 profile
-  visits a day. Days are UTC days.
+- One tab at a time. The next one opens at the first once-a-minute check that
+  comes 1 to 3 minutes (picked at random) after the last tab closed, so about
+  1 to 4 minutes later. At most 25 mutes and 50 profile visits a day. Days are
+  UTC days.
 - After every 5 mutes, and when the day's caps are reached or nothing is left
   to visit, it opens `x.com/settings/muted/all` the same way and checks that
   each new mute is listed there.
@@ -430,8 +439,10 @@ reads (see [Limits](#limits)). Please open an issue.
 
 The extension needs Chrome 116 or later, or another Chromium browser of that
 age; it was tested in Chromium 156. The userscript was tested in Violentmonkey
-2.50.0 on Chromium 156. Brave, Edge, Firefox and Tampermonkey have not been
-tested.
+2.50.0 on Chromium 156. Muting has run in Brave on the maintainer's own
+account since 2026-11-07 ([docs/TESTING.md](docs/TESTING.md)). Hiding has not
+been tested in Brave, and nothing has been tested in Edge, Firefox or
+Tampermonkey.
 
 ### Does it work on my phone?
 
@@ -497,116 +508,13 @@ check on real x.com: load the extension, scroll a busy reply thread, and
 confirm that each hidden post's `@handle` is on the list and that no listed
 author's post is left showing.
 
-## Tested
+## Testing
 
-On 2026-11-03, the real `lib.js` and `content.js` were injected into a logged-in
-x.com tab through the DevTools protocol, with a stub in place of extension
-storage. A separate oracle read each post's visible `@handle` text (not the
-script's own href matcher) and compared it with what was hidden.
-
-| Page | Distinct posts | Should hide | Hidden | Mismatches |
-|---|---|---|---|---|
-| A listed account's `/with_replies` | 47 | 6 | 6 | 0 |
-| Reply thread, 251 replies (reached by in-app navigation) | 118 | 12 | 12 | 0 |
-| Reply thread, 105 replies | 106 | 13 | 13 | 0 |
-| Home timeline | 25 | 0 | 0 | 0 |
-
-The listed account's own posts stayed visible on its profile and were hidden on
-other threads. Frame-time p95 was 20.3 and 19.9 ms before injection, 20.3 and
-19.6 ms injected with hiding paused, and 30-41 ms with hiding on.
-
-Frame times were measured on the listed account's `/with_replies` page.
-
-The unpacked extension was also run in Chromium 156 (headless, through
-Playwright) with x.com URLs answered by fixture pages: the service worker
-fetched the real feed on install and scheduled the 360-minute alarm; the
-content script hid exactly the listed authors and skipped the own profile;
-the popup showed the list, read the active tab's counts, and its pause,
-allowlist and refresh controls took effect. The only requests outside the
-fixtures were the feed URL, once at install and once on refresh.
-
-On 2026-11-06, the same setup passed 22 of 22 checks: 20 page-change scenarios,
-including X removing, recycling and reinserting post cells, plus 2 setup
-checks. Each scenario ended with exactly the listed authors hidden.
-
-Also on 2026-11-06, version 0.2.0 ran in Chromium 156 the same way, twice:
-
-- The userscript, in Violentmonkey 2.50.0. Opening a `.user.js` URL on a
-  local web server brought up Violentmonkey's install page, which showed
-  version 0.2.0 and `@connect clankwall.vogel.dev`. After install, the script
-  fetched the real list (767 handles) through the manager, hid @grok and a
-  listed author, and left an unlisted account showing. After a reload it hid
-  them again from the stored list without fetching it again. Violentmonkey's
-  menu showed all four commands, and **Show / hide @grok** showed @grok's post
-  while the listed author stayed hidden. 10 of 10 checks passed: 8 on the
-  script and 2 setup checks.
-- The extension. The popup's **Show @grok's replies** box started unticked.
-  Ticking it showed @grok's post in an open x.com tab while the listed author
-  stayed hidden; the box was still ticked when the popup reopened; unticking
-  it hid @grok again. On @grok's own profile its posts showed with the switch
-  off. 9 of 9 checks passed: 8 on the extension and 1 setup check. Version
-  0.4.0 replaced that box with @grok's row under [Bots](#bots).
-
-Muting was tested on 2026-11-06 in two ways.
-
-On real x.com, logged in, the real `lib.js` and `content.js` were injected into
-a background tab through the DevTools protocol, as in the extension's own visit
-tab, and given a job shaped the way the background worker builds one. The job
-muted one listed account in 9.6 s, and X showed "@… has been muted.Undo". A
-check job then read 7 rows of `x.com/settings/muted/all`, with the new mute
-first. On 3 of 4 profiles, the first post appeared 2 to 3 s before its ⋯
-button, so the job waits for the button.
-
-The unpacked extension was run in Chromium 156 (headless, through Playwright)
-with x.com answered by a local HTTPS server of fixture pages; Playwright's own
-request routing did not reach the tabs the extension opened. The 6 most recent
-runs, the last at version 0.3.0, passed 24 of 24 checks:
-
-- With muting off there is no mute alarm and no sightings. Turning it on
-  creates a 1-minute alarm; turning it off clears it.
-- A listed author hidden in the user's tab is visited first.
-- The alarm starts each visit by itself, in a background tab, while the user's
-  tab stays active and gets no click.
-- A mute waits for a ⋯ button that appears 2.5 s after the post, clicks Mute
-  once, keeps X's notice, and closes the tab.
-- Visits are 1 to 3 minutes apart.
-- An already-muted account and a followed one are recorded without a Mute
-  click. @grok and an Always-show account are never visited.
-- The check runs when nothing is left to visit, confirms two mutes, and stops
-  the day on a third that the fixture muted list leaves out.
-- A stopped day opens no tabs.
-
-One run before those 6 failed a check. The likely cause is the test harness,
-which changed the worker's stored state outside the worker's own queue; it now
-goes through that queue. In an earlier run of the same setup, a visit tab that
-never answered was closed after 90 s and recorded as a failed visit.
-
-Version 0.4.0 ran the same way on 2026-11-06 and passed 35 of 35 checks on
-each of three runs, the last after the review fixes (each Mute click now waits
-for the worker's go-ahead). Besides the muting checks above (now 5 mutes and 7
-visits, with the check after the 5th mute), it checked:
-
-- The popup, opened as a page: six bot rows, @grok at **Hide here** and the
-  other five at **Show**, and no settings written by opening it. **Save** wrote
-  both boxes; a bot in Always show was locked to **Show**; picking **Mute on
-  X** for @AskPerplexity saved only that row; ticking the tag box saved it.
-- The user's timeline, with the tag box ticked: posts by a listed author and
-  by @grok were hidden, and so were a post tagging @grok and one tagging
-  @AskPerplexity in their own text. A post quoting a post that tagged @grok,
-  the user's own post tagging @grok, and a post tagging @pangramlabs (at
-  **Show**) stayed visible. The tab's count had the 2 tag posts apart from the
-  2 listed posts.
-- With muting on, only the listed author went to the front of the queue, not
-  @grok or the taggers. Visits went through the list, then the extra account,
-  then @AskPerplexity, each muted with one click. @grok, the bots at **Show**
-  or in Always show, the Always-show account and the taggers were never
-  visited.
-
-Not tested: Brave itself, Tampermonkey, Violentmonkey in Firefox, the 6-hour
-refresh actually firing, reposts, and the notifications page. For muting: the
-background worker's own visit tabs on real x.com (the live mute above was
-driven through the DevTools protocol), a full day of 25 mutes or several days
-in a row, how X responds to that pace, and X in other languages.
+Hiding was checked on real x.com on 2026-11-03 (four pages, 0 mismatches), and
+versions 0.2.0 to 0.4.0 ran in headless Chromium against fixture pages. Muting
+has run in Brave on the maintainer's own account since 2026-11-07.
+[docs/TESTING.md](docs/TESTING.md) has each run, its method and results, and
+what has not been tested.
 
 ## Contributing
 
