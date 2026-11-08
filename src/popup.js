@@ -13,24 +13,31 @@
     return h < 48 ? `${h} h ago` : `${Math.round(h / 24)} days ago`;
   }
 
+  // Off: only the hint to fill Always show first. On: who it mutes as,
+  // today's mutes as a bar and in words, and the totals so far.
   function renderMuting(s, m) {
-    $('mute').checked = !!(s.muteEnabled && s.muteAccount);
-    if (!$('mute').checked) {
-      $('muteState').textContent = 'Off.';
+    const on = !!(s.muteEnabled && s.muteAccount);
+    $('mute').checked = on;
+    $('muteHint').hidden = on;
+    $('muteOn').hidden = !on;
+    if (!on) {
       $('muteStop').hidden = true;
-    } else {
-      const now = Date.now();
-      const b = L.muteBudget(m, L.utcDay(now));
-      const t = L.muteSummary(m);
-      const next = m.nextAt && m.nextAt > now ? ` · next visit in ${Math.ceil((m.nextAt - now) / 60000)} min` : '';
-      $('muteState').textContent =
-        `Muting as @${s.muteAccount}. Today (UTC): ${b.mutes} of ${L.DEFAULTS.muteDailyCap} mutes, ` +
-        `${b.visits} of ${L.DEFAULTS.muteVisitCap} visits${next}. ` +
-        `So far: ${t.muted} muted (${t.confirmed} seen on your muted list, ${t.notFound} not found there), ` +
-        `${t.already} already muted, ${t.followed} you follow, ${t.skipped} skipped.`;
-      $('muteStop').hidden = !b.stopped;
-      $('muteStop').textContent = b.stopped ? `Stopped for today: ${b.stopped}` : '';
+      return;
     }
+    const now = Date.now();
+    const cap = L.DEFAULTS.muteDailyCap;
+    const b = L.muteBudget(m, L.utcDay(now));
+    const t = L.muteSummary(m);
+    const next = m.nextAt && m.nextAt > now ? ` · next visit in ${Math.ceil((m.nextAt - now) / 60000)} min` : '';
+    $('muteWho').textContent = `Muting as @${s.muteAccount}`;
+    $('muteBar').setAttribute('max', String(cap));
+    $('muteBar').setAttribute('value', String(Math.min(b.mutes, cap)));
+    $('muteToday').textContent = `Today (UTC): ${b.mutes} of ${cap} mutes, ${b.visits} of ${L.DEFAULTS.muteVisitCap} visits${next}`;
+    $('muteTotals').textContent =
+      `So far: ${t.muted} muted (${t.confirmed} seen on your muted list, ${t.notFound} not found there), ` +
+      `${t.already} already muted, ${t.followed} you follow, ${t.skipped} skipped.`;
+    $('muteStop').hidden = !b.stopped;
+    $('muteStop').textContent = b.stopped ? `Stopped for today: ${b.stopped}` : '';
   }
 
   async function render() {
@@ -44,12 +51,15 @@
     } catch (_) {
       host = String(rec.source || '');
     }
-    $('list').textContent = `${rec.handles.length} listed accounts · updated ${ago(rec.fetchedAt)} · ${host}`;
+    $('list').textContent = `${rec.handles.length} listed accounts · ${host}`;
+    $('listAge').textContent = rec.fetchedAt ? `Updated ${ago(rec.fetchedAt)}` : 'Not fetched yet';
     $('err').hidden = !rec.lastError;
     $('err').textContent = rec.lastError ? `Last refresh failed (${ago(rec.lastAttemptAt)}): ${rec.lastError}. Still using the previous list.` : '';
     $('paused').checked = !!s.paused;
     if (document.activeElement !== $('allow')) $('allow').value = s.allowlist || '';
     if (document.activeElement !== $('extra')) $('extra').value = s.extraList || '';
+    const count = (text) => L.parseAllowlist(text).size;
+    $('listsSum').textContent = `Always show ${count(s.allowlist)} · Also hide ${count(s.extraList)}`;
     renderBots(s, rec.handles);
     $('mentions').checked = s.hideBotMentions === true;
 
@@ -105,7 +115,7 @@
       who.append(a, note);
       const sel = document.createElement('select');
       sel.id = `bot-${b.handle}`;
-      sel.setAttribute('aria-label', `@${b.name}`);
+      sel.setAttribute('aria-label', `What to do with @${b.name}`);
       for (const m of L.BOT_MODES) {
         const o = document.createElement('option');
         o.value = m;
@@ -126,9 +136,13 @@
   }
 
   // An Always-show entry wins over a bot's row, so the row is locked to Show.
+  // The section's summary line counts the rows, so it reads while folded.
   function renderBots(s, handles) {
     const modes = L.botModes(s, handles);
     const allow = L.parseAllowlist(s.allowlist);
+    const n = { show: 0, hide: 0, mute: 0 };
+    for (const b of L.BOTS) n[modes[b.handle]] += 1;
+    $('botsSum').textContent = L.BOT_MODES.map((m) => `${LABELS[m]} ${n[m]}`).join(' · ');
     for (const b of L.BOTS) {
       const sel = $(`bot-${b.handle}`);
       if (!sel || document.activeElement === sel) continue;

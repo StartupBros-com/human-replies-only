@@ -107,6 +107,27 @@ visits, with the check after the 5th mute), it checked:
   or in Always show, the Always-show account and the taggers were never
   visited.
 
+Version 0.4.1 changed the Pangram row from @pangramlabs, which is not an X
+account, to @pangram.
+
+Version 0.4.1 also redesigned the popup and added the toolbar icon. On
+2026-11-08 the popup page was rendered in Chromium 156 with a stub in place of
+the extension APIs, in light and dark, for three states: muting on, a new
+install, and muting stopped with a failed refresh. With the folded sections
+closed, each was 400 pixels wide and 483 to 595 tall, so none scrolls (a popup
+scrolls past 600); opening all three folds makes it scroll again. Before the
+change the same states were 1,259 to 1,380 pixels tall. The wiring tests check
+what each part of the popup says.
+
+The same day, 0.4.1 ran in the 0.4.0 setup above and passed 40 of 40 checks:
+the 35 above, with @pangram in place of @pangramlabs, and 5 on the popup's
+folded sections. Both folds started closed and showed their counts ("Show 5 ·
+Hide here 1 · Mute on X 0"), the popup was 483 pixels tall, clicking each
+summary opened it, and both counts followed **Save** and the bot rows. The
+runner's first wait now accepts a bot row hidden in a closed fold. Later on
+2026-11-08 the maintainer reloaded 0.4.1 in Brave and reported that the popup
+looked right. A bot row set to **Mute on X** has not run in Brave yet.
+
 ## In daily use
 
 Since 2026-11-07 (UTC) the extension has run in Brave on Windows, on the

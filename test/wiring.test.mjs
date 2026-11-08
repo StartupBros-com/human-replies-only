@@ -5,7 +5,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { buildUserscript } from '../scripts/build-userscript.mjs';
-import { src, post, page, tick, lib, meLink } from './helpers.mjs';
+import { src, root, post, page, tick, lib, meLink } from './helpers.mjs';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { parseHTML } from 'linkedom';
 
 const many = (n) => Array.from({ length: n }, (_, i) => `h${i}`);
@@ -670,7 +672,7 @@ test('popup: one row per bot, showing what applies now, without writing anything
   const rows = [...p.document.querySelectorAll('#bots .bot')];
   assert.deepEqual(
     rows.map((r) => r.querySelector('a').getAttribute('href')),
-    ['grok', 'AskPerplexity', 'pangramlabs', 'bot', 'threadreaderapp', 'UnrollHelper'].map((n) => `https://x.com/${n}`),
+    ['grok', 'AskPerplexity', 'pangram', 'bot', 'threadreaderapp', 'UnrollHelper'].map((n) => `https://x.com/${n}`),
   );
   assert.deepEqual(
     lib.BOTS.map((b) => rowMode(p, b.handle)),
@@ -680,6 +682,8 @@ test('popup: one row per bot, showing what applies now, without writing anything
   assert.equal(p.document.getElementById('bot-bot').disabled, true, 'Always-show locks the row to Show');
   assert.equal(p.document.getElementById('bot-grok').disabled, false);
   assert.equal(p.document.getElementById('mentions').checked, false);
+  assert.equal(p.document.getElementById('botsSum').textContent, 'Show 5 · Hide here 1 · Mute on X 0', 'the folded section counts its rows');
+  assert.equal(p.document.getElementById('listsSum').textContent, 'Always show 2 · Also hide 0');
   assert.deepEqual(p.chrome.store['xsh:settings'], settings, 'rendering saves nothing');
 });
 
@@ -702,6 +706,7 @@ test("popup: changing a bot's row saves only that bot, keeping other settings an
   });
   assert.equal(rowMode(p, 'grok'), 'hide', 'a saved row wins over showGrok');
   assert.equal(rowMode(p, 'askperplexity'), 'mute');
+  assert.equal(p.document.getElementById('botsSum').textContent, 'Show 3 · Hide here 2 · Mute on X 1');
 });
 
 test('popup: Save writes both boxes in one write; the tag box saves hideBotMentions', async () => {
@@ -720,6 +725,7 @@ test('popup: Save writes both boxes in one write; the tag box saves hideBotMenti
   assert.equal(writes.length, 1);
   assert.deepEqual(p.chrome.store['xsh:settings'], { paused: false, allowlist: 'friend\npal', extraList: 'extra_a\nextra_b' });
   assert.equal(p.document.getElementById('extra').value, 'extra_a\nextra_b');
+  assert.equal(p.document.getElementById('listsSum').textContent, 'Always show 2 · Also hide 2');
   const box = p.document.getElementById('mentions');
   box.checked = true;
   box.dispatchEvent(new p.window.Event('change'));
@@ -733,7 +739,8 @@ test('popup: muting binds to the account logged in on this tab, and refuses with
   await settle();
   const box = p.document.getElementById('mute');
   assert.equal(box.checked, false);
-  assert.equal(p.document.getElementById('muteState').textContent, 'Off.');
+  assert.equal(p.document.getElementById('muteHint').hidden, false, 'off: the Always-show hint');
+  assert.equal(p.document.getElementById('muteOn').hidden, true);
   // No x.com tab: stays off and says why.
   box.checked = true;
   box.dispatchEvent(new p.window.Event('change'));
@@ -748,11 +755,16 @@ test('popup: muting binds to the account logged in on this tab, and refuses with
   box.dispatchEvent(new p.window.Event('change'));
   await settle();
   assert.deepEqual(p.chrome.store['xsh:settings'], { allowlist: 'friend', muteEnabled: true, muteAccount: 'startupbros' });
-  assert.match(p.document.getElementById('muteState').textContent, /^Muting as @startupbros\. Today \(UTC\): 0 of 25 mutes, 0 of 50 visits/);
+  assert.equal(p.document.getElementById('muteHint').hidden, true);
+  assert.equal(p.document.getElementById('muteOn').hidden, false);
+  assert.equal(p.document.getElementById('muteWho').textContent, 'Muting as @startupbros');
+  assert.equal(p.document.getElementById('muteToday').textContent, 'Today (UTC): 0 of 25 mutes, 0 of 50 visits');
   box.checked = false;
   box.dispatchEvent(new p.window.Event('change'));
   await settle();
   assert.deepEqual(p.chrome.store['xsh:settings'], { allowlist: 'friend', muteEnabled: false, muteAccount: null });
+  assert.equal(p.document.getElementById('muteHint').hidden, false);
+  assert.equal(p.document.getElementById('muteOn').hidden, true);
 });
 
 test("popup: shows today's counts, the totals and why muting stopped", async () => {
@@ -773,13 +785,47 @@ test("popup: shows today's counts, the totals and why muting stopped", async () 
   });
   await settle();
   assert.equal(p.document.getElementById('mute').checked, true);
+  assert.equal(p.document.getElementById('muteWho').textContent, 'Muting as @startupbros');
+  assert.equal(p.document.getElementById('muteToday').textContent, 'Today (UTC): 2 of 25 mutes, 5 of 50 visits');
+  assert.equal(p.document.getElementById('muteBar').getAttribute('value'), '2');
+  assert.equal(p.document.getElementById('muteBar').getAttribute('max'), '25');
   assert.equal(
-    p.document.getElementById('muteState').textContent,
-    'Muting as @startupbros. Today (UTC): 2 of 25 mutes, 5 of 50 visits. ' +
-      'So far: 2 muted (1 seen on your muted list, 1 not found there), 1 already muted, 1 you follow, 1 skipped.',
+    p.document.getElementById('muteTotals').textContent,
+    'So far: 2 muted (1 seen on your muted list, 1 not found there), 1 already muted, 1 you follow, 1 skipped.',
   );
   assert.equal(p.document.getElementById('muteStop').hidden, false);
   assert.equal(p.document.getElementById('muteStop').textContent, 'Stopped for today: not on settings/muted/all after muting: @b');
+});
+
+test('popup: the bar stops at the cap, and a stop line from today hides while muting is off', async () => {
+  const day = lib.utcDay(Date.now());
+  const over = loadPopup({
+    'xsh:list': { handles: [], fetchedAt: Date.now(), source: 's' },
+    'xsh:settings': { muteEnabled: true, muteAccount: 'startupbros' },
+    'xsh:mutes': { ...lib.emptyMutes(), days: { [day]: { mutes: 26, visits: 30 } } },
+  });
+  await settle();
+  assert.equal(over.document.getElementById('muteBar').getAttribute('value'), '25');
+  assert.equal(over.document.getElementById('muteToday').textContent, 'Today (UTC): 26 of 25 mutes, 30 of 50 visits');
+  const off = loadPopup({
+    'xsh:list': { handles: [], fetchedAt: Date.now(), source: 's' },
+    'xsh:settings': { muteEnabled: false },
+    'xsh:mutes': { ...lib.emptyMutes(), days: { [day]: { mutes: 25, visits: 31, stopped: 'daily mute cap reached' } } },
+  });
+  await settle();
+  assert.equal(off.document.getElementById('muteStop').hidden, true);
+  assert.equal(off.document.getElementById('muteOn').hidden, true);
+  assert.equal(off.document.getElementById('muteHint').hidden, false);
+});
+
+test('popup and manifest: every icon file they name exists', () => {
+  const m = JSON.parse(src('manifest.json'));
+  const paths = [...Object.values(m.icons), ...Object.values(m.action.default_icon)];
+  assert.ok(paths.length >= 4);
+  for (const p of paths) assert.ok(existsSync(join(root, p)), p);
+  const { document } = parseHTML(src('src/popup.html'));
+  const img = document.querySelector('header img').getAttribute('src');
+  assert.ok(existsSync(join(root, 'src', img)), img);
 });
 
 test('userscript: has no job channel, so it only hides', async () => {

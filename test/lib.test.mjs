@@ -314,7 +314,7 @@ test('noteSighting moves an account to the front, once, capped at muteFrontMax',
 
 // ------------------------------------------------------------------ bots
 
-const ROSTER = ['grok', 'askperplexity', 'pangramlabs', 'bot', 'threadreaderapp', 'unrollhelper'];
+const ROSTER = ['grok', 'askperplexity', 'pangram', 'bot', 'threadreaderapp', 'unrollhelper'];
 // Plain objects: botModes builds its result in the test's own realm, but keep the
 // comparison independent of key order.
 const modesOf = (settings, list) => Object.fromEntries(Object.entries(lib.botModes(settings, list)).sort());
@@ -337,15 +337,15 @@ test('a bot with no saved choice follows the list: hidden if listed, shown if no
   assert.deepEqual(modesOf(undefined, undefined), expectModes(all('show')));
   // A bot later added to the list, or to the user's extra accounts, flips to Hide.
   assert.deepEqual(modesOf({}, ['grok', 'askperplexity']), expectModes({ ...all('show'), grok: 'hide', askperplexity: 'hide' }));
-  assert.deepEqual(modesOf({ extraList: '@PangramLabs' }, []), expectModes({ ...all('show'), pangramlabs: 'hide' }));
+  assert.deepEqual(modesOf({ extraList: '@Pangram' }, []), expectModes({ ...all('show'), pangram: 'hide' }));
 });
 
 test('a saved choice wins over the list, an Always-show entry wins over both, and bad values are ignored', () => {
-  const m = modesOf({ bots: { grok: 'show', askperplexity: 'mute', bot: 'hide', pangramlabs: 'loud' } }, ['grok']);
+  const m = modesOf({ bots: { grok: 'show', askperplexity: 'mute', bot: 'hide', pangram: 'loud' } }, ['grok']);
   assert.equal(m.grok, 'show');
   assert.equal(m.askperplexity, 'mute');
   assert.equal(m.bot, 'hide');
-  assert.equal(m.pangramlabs, 'show', 'an unknown value falls back to the list');
+  assert.equal(m.pangram, 'show', 'an unknown value falls back to the list');
   assert.equal(modesOf({ bots: { grok: 'mute' }, allowlist: 'grok' }, ['grok']).grok, 'show');
   assert.equal(lib.botChoice({ bots: 'grok' }, 'grok'), null);
   assert.equal(lib.botChoice({ bots: { grok: 'Show' } }, 'grok'), null, 'modes are exact');
@@ -367,9 +367,9 @@ test("0.3.0's showGrok means @grok is set to Show, until its row is changed", ()
 });
 
 test('effectiveAllow adds bots set to Show; effectiveList adds extra accounts and bots set to Hide or Mute', () => {
-  const s = { allowlist: 'friend', extraList: 'Extra_A, extra_b', bots: { askperplexity: 'show', bot: 'hide', pangramlabs: 'mute' } };
+  const s = { allowlist: 'friend', extraList: 'Extra_A, extra_b', bots: { askperplexity: 'show', bot: 'hide', pangram: 'mute' } };
   assert.deepEqual([...lib.effectiveAllow(s)].sort(), ['askperplexity', 'friend']);
-  assert.deepEqual([...lib.effectiveList(['slop_a'], s)].sort(), ['bot', 'extra_a', 'extra_b', 'pangramlabs', 'slop_a']);
+  assert.deepEqual([...lib.effectiveList(['slop_a'], s)].sort(), ['bot', 'extra_a', 'extra_b', 'pangram', 'slop_a']);
   // A bot at its default adds nothing: the list decides.
   assert.deepEqual([...lib.effectiveList(['grok'], {})], ['grok']);
   assert.deepEqual([...lib.effectiveAllow({})], []);

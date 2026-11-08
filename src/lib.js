@@ -184,7 +184,7 @@
     [
       { handle: 'grok', name: 'grok', note: "X's assistant" },
       { handle: 'askperplexity', name: 'AskPerplexity', note: "Perplexity's answer bot" },
-      { handle: 'pangramlabs', name: 'pangramlabs', note: 'AI-text detector' },
+      { handle: 'pangram', name: 'pangram', note: 'AI-text detector' },
       { handle: 'bot', name: 'bot', note: "xAI's Grok Bot" },
       { handle: 'threadreaderapp', name: 'threadreaderapp', note: 'thread unroller' },
       { handle: 'unrollhelper', name: 'UnrollHelper', note: 'thread unroller' },
