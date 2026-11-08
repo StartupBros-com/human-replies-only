@@ -4,52 +4,150 @@
 <meta charset="utf-8">
 <title>x-slop-hide</title>
 <style>
-  :root { color-scheme: light dark; --muted: #6b7280; --bad: #b91c1c; }
-  body { font: 13px/1.4 system-ui, sans-serif; width: 300px; margin: 12px; }
-  h1 { font-size: 14px; margin: 0 0 8px; }
-  p { margin: 6px 0; }
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff; --fg: #0f1419; --muted: #536471; --line: #e1e5e9; --card: #f7f9fa;
+    --accent: #e11d48; --track: #7b8794; --focus: #2563eb; --link: #1d4ed8;
+    --btn: #e11d48; --pause: #d97706;
+    --warn-bg: #fff7ed; --warn-line: #f59e0b; --bad: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15181c; --fg: #e7e9ea; --muted: #8b98a5; --line: #2f3439; --card: #1d2126;
+      --accent: #f43f5e; --track: #6b737b; --focus: #93c5fd; --link: #93c5fd;
+      --warn-bg: #2b2112; --warn-line: #d97706; --bad: #f87171;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { width: 400px; margin: 0; padding: 10px 14px; background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+  p { margin: 0; }
+  a { color: var(--link); }
   .muted { color: var(--muted); }
-  .bad { color: var(--bad); }
-  label { display: block; margin: 10px 0 4px; }
-  textarea { width: 100%; box-sizing: border-box; font: 12px ui-monospace, monospace; }
-  .row { display: flex; gap: 8px; margin-top: 8px; }
-  button { padding: 4px 10px; }
-  h2 { font-size: 13px; margin: 10px 0 4px; }
-  .bot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0; }
-  .bot .who { min-width: 0; }
-  .bot .note { display: block; font-size: 11px; }
-  a { color: inherit; }
+  .small { font-size: 12px; }
+  .bad { color: var(--bad); font-size: 12px; margin-top: 6px; }
+  [hidden] { display: none !important; }
+
+  .top { display: flex; align-items: center; gap: 8px; }
+  .top img { display: block; }
+  .top h1 { font-size: 15px; margin: 0; }
+  .top .sw { margin-left: auto; font-size: 12px; color: var(--muted); }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; margin-top: 8px; }
+  .tab { font-weight: 500; }
+  .listrow { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  button.link { padding: 0; border: 0; background: none; color: var(--link); font-size: 12px; }
+  button.link:hover { text-decoration: underline; }
+
+  .sw { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .sw.head { justify-content: space-between; font-weight: 600; }
+  input[role='switch'] { appearance: none; flex: none; position: relative; width: 34px; height: 20px; margin: 0; border-radius: 10px; background: var(--track); cursor: pointer; transition: background-color 0.15s; }
+  input[role='switch']::before { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); transition: transform 0.15s; }
+  input[role='switch']:checked { background: var(--accent); }
+  input[role='switch']:checked::before { transform: translateX(14px); }
+  /* Paused is a choice, not an error: amber, so red stays for errors and muting. */
+  #paused:checked { background: var(--pause); }
+
+  #muteOn { margin-top: 5px; }
+  progress { appearance: none; display: block; width: 100%; height: 6px; margin: 6px 0 4px; border: 0; border-radius: 3px; background: var(--track); overflow: hidden; }
+  progress::-webkit-progress-bar { background: var(--track); }
+  progress::-webkit-progress-value { background: var(--accent); }
+  #muteTotals { margin-top: 2px; }
+  #muteStop { margin-top: 4px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .warn { margin-top: 7px; padding: 6px 9px; font-size: 12px; line-height: 1.35; background: var(--warn-bg); border-left: 3px solid var(--warn-line); border-radius: 4px; }
+
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+  .fold > summary { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .fold > summary .sum { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
+  .fold > summary::before, .more > summary::before { content: ''; flex: none; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); transition: transform 0.15s; margin: 0 3px 0 1px; }
+  .fold[open] > summary::before, .more[open] > summary::before { transform: rotate(45deg); }
+  .fold[open] > summary { margin-bottom: 6px; }
+  .more { margin-top: 8px; font-size: 12px; }
+  .more > summary { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+  .more ul { margin: 6px 0 0; padding-left: 18px; }
+  .more li { margin: 2px 0; }
+
+  .bot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 0; border-top: 1px solid var(--line); }
+  .bot:first-child { border-top: 0; }
+  .bot .who { min-width: 0; line-height: 1.25; }
+  .bot .who a { color: var(--link); font-weight: 600; text-decoration: none; }
+  .bot .who a:hover { text-decoration: underline; }
+  .bot .note { display: block; font-size: 11px; color: var(--muted); }
+  select { flex: none; width: 104px; font: inherit; font-size: 12px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+  select:disabled { opacity: 0.55; }
+  .check { display: flex; align-items: flex-start; gap: 7px; margin-top: 8px; cursor: pointer; }
+  .check input { margin: 2px 0 0; flex: none; }
+
+  .field { display: block; font-size: 12px; margin: 4px 0 4px; }
+  textarea { display: block; width: 100%; padding: 5px 7px; margin-bottom: 8px; font: 12px/1.35 ui-monospace, monospace; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); resize: vertical; }
+  button { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); cursor: pointer; white-space: nowrap; }
+  button.primary { background: var(--btn); border-color: var(--btn); color: #fff; font-weight: 600; }
+  button:disabled { opacity: 0.6; cursor: default; }
+
+  footer { margin-top: 8px; font-size: 11px; color: var(--muted); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
 </style>
 </head>
 <body>
-<h1>x-slop-hide</h1>
-<p id="list">Loading…</p>
-<p id="err" class="bad" hidden></p>
-<p id="tab" class="muted"></p>
-<label><input type="checkbox" id="paused"> Pause hiding</label>
-<label for="allow">Always show these accounts (one handle per line)</label>
-<textarea id="allow" rows="3" spellcheck="false"></textarea>
-<label for="extra">Also hide these accounts, and mute them when muting is on</label>
-<textarea id="extra" rows="3" spellcheck="false"></textarea>
-<div class="row">
-  <button id="save">Save</button>
-  <button id="refresh">Refresh list now</button>
-</div>
-<hr>
-<h2>Bots that answer when tagged</h2>
-<p class="muted">A bot you have not set follows the list: hidden if the list has it, shown if not. Mute on X happens only while muting below is on.</p>
-<div id="bots"></div>
-<label><input type="checkbox" id="mentions"> Also hide posts that tag a bot set to Hide or Mute</label>
-<p class="muted">This browser only. For the X apps too, add the bot's handle (such as @grok) as a <a href="https://x.com/settings/muted_keywords" target="_blank" rel="noopener">muted word on X</a>. To block a bot, open its profile from the list above.</p>
-<hr>
-<label><input type="checkbox" id="mute"> Mute listed accounts on X</label>
-<p class="muted">Mutes up to 25 a day, one every few minutes, in background tabs it opens and closes. It clicks X's own Mute, so the mutes reach the X apps too. It mutes the list, your extra accounts and any bot set to Mute on X. It skips accounts you follow, the Always-show accounts and every other bot, even one in your extra accounts, and never unmutes.</p>
-<p class="muted">Add accounts you never want muted to the Always-show box before turning this on.</p>
-<p class="bad">X's rules forbid "scripting the X website" and say: "The use of these techniques may result in the permanent suspension of your account." This switch is that.</p>
-<p id="muteErr" class="bad" hidden></p>
-<p id="muteState" class="muted"></p>
-<p id="muteStop" class="bad" hidden></p>
-<p class="muted">Hiding happens in this browser only. Muting, when on, goes through x.com's own page, never X's API.</p>
+<header class="top">
+  <img src="../icons/icon-32.png" width="22" height="22" alt="">
+  <h1>x-slop-hide</h1>
+  <label class="sw"><span>Pause hiding</span><input type="checkbox" id="paused" role="switch"></label>
+</header>
+
+<section class="card">
+  <p id="tab" class="tab"></p>
+  <div class="listrow">
+    <p id="list">Loading…</p>
+    <p><span id="listAge"></span> · <button id="refresh" class="link">Refresh list now</button></p>
+  </div>
+  <p id="err" class="bad" hidden></p>
+</section>
+
+<section class="card">
+  <label class="sw head"><span>Mute listed accounts on X</span><input type="checkbox" id="mute" role="switch"></label>
+  <p id="muteErr" class="bad" hidden></p>
+  <p id="muteHint" class="hint">Before turning this on, add accounts you never want muted to Always show, under Your accounts.</p>
+  <div id="muteOn" hidden>
+    <p id="muteWho"></p>
+    <progress id="muteBar" max="25" value="0" aria-label="Mutes today"></progress>
+    <p id="muteToday" class="small"></p>
+    <p id="muteTotals" class="small muted"></p>
+  </div>
+  <p id="muteStop" class="bad" hidden></p>
+  <p class="warn">X's rules forbid "scripting the X website" and say: "The use of these techniques may result in the permanent suspension of your account." Muting scripts x.com.</p>
+  <details class="more">
+    <summary>How muting works</summary>
+    <ul>
+      <li>Mutes up to 25 accounts a day, one every few minutes, in background tabs it opens and closes.</li>
+      <li>Clicks X's own Mute on x.com, so the mutes reach the X apps too. It never uses X's API.</li>
+      <li>Mutes the list, your extra accounts and any bot set to Mute on X.</li>
+      <li>Skips accounts you follow, Always-show accounts and every other bot, even one in your extra accounts.</li>
+      <li>Never unmutes. To undo a mute, unmute the account on X.</li>
+    </ul>
+  </details>
+</section>
+
+<details class="card fold">
+  <summary><span>Bots that answer when tagged<span id="botsSum" class="sum"></span></span></summary>
+  <p class="hint">A row you haven't changed follows the list: Hide here if the bot is on the list or in Also hide, Show if not. Mute on X hides the bot here and mutes it while muting is on.</p>
+  <div id="bots"></div>
+  <label class="check"><input type="checkbox" id="mentions"><span>Also hide posts that tag a bot set to Hide or Mute</span></label>
+  <p class="hint">Tag hiding works in this browser only. For the X apps too, add the bot's handle (such as @grok) as a <a href="https://x.com/settings/muted_keywords" target="_blank" rel="noopener">muted word on X</a>. To block a bot, open its profile from its name.</p>
+</details>
+
+<details class="card fold">
+  <summary><span>Your accounts<span id="listsSum" class="sum"></span></span></summary>
+  <label class="field" for="allow">Always show these accounts (one handle per line)</label>
+  <textarea id="allow" rows="3" spellcheck="false"></textarea>
+  <label class="field" for="extra">Also hide these accounts, and mute them when muting is on</label>
+  <textarea id="extra" rows="3" spellcheck="false"></textarea>
+  <button id="save" class="primary">Save</button>
+</details>
+
+<footer>Hiding works in this browser only. <a href="https://github.com/StartupBros-com/x-slop-hide#readme" target="_blank" rel="noopener">How x-slop-hide works</a></footer>
 <script src="lib.js"></script>
 <script src="popup.js"></script>
 </body>

@@ -111,6 +111,16 @@ Version 0.4.1 changed the Pangram row from @pangramlabs, which is not an X
 account, to @pangram. That change ran in the unit and wiring tests only, not
 in a browser.
 
+Version 0.4.1 also redesigned the popup and added the toolbar icon. On
+2026-11-08 the popup page was rendered in Chromium 156 with a stub in place of
+the extension APIs, in light and dark, for three states: muting on, a new
+install, and muting stopped with a failed refresh. With the folded sections
+closed, each was 400 pixels wide and 483 to 595 tall, so none scrolls (a popup
+scrolls past 600); opening all three folds makes it scroll again. Before the
+change the same states were 1,259 to 1,380 pixels tall. The wiring tests check
+what each part of the popup says. Neither the popup nor the icon has been
+opened in Brave yet.
+
 ## In daily use
 
 Since 2026-11-07 (UTC) the extension has run in Brave on Windows, on the

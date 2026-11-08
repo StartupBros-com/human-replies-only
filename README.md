@@ -66,8 +66,11 @@ because the mutes are X's own.
 2. Open `chrome://extensions` (`brave://extensions` in Brave) and turn on
    **Developer mode**.
 3. Click **Load unpacked** and pick the folder that contains `manifest.json`.
-4. Open x.com, then click the extension's icon. The popup shows how many
-   accounts are listed and when the list was last updated.
+4. Open x.com, then click the extension's icon: a red square with a
+   crossed-out speech bubble. If it is not on the toolbar, open the
+   puzzle-piece **Extensions** button and click the pin next to x-slop-hide.
+   The popup shows how many accounts are listed and when the list was last
+   updated.
 
 An unpacked extension does not update itself. To get a new version, download
 again, replace the folder, and click the reload arrow on the extension's card.
@@ -93,17 +96,22 @@ whenever the tab comes back into view. The userscript does not mute.
 | To | In the extension popup | In the userscript menu |
 |---|---|---|
 | Show everything for a while | Tick **Pause hiding** | **Pause / resume hiding** |
-| Always see an account | Add its handle under **Always show these accounts**, then click **Save** | **Edit always-show list** |
-| Hide an account that is not on the list | Add its handle under **Also hide these accounts, and mute them when muting is on**, then click **Save** | **Edit extra accounts to hide** |
+| Always see an account | Under **Your accounts**, add its handle to **Always show these accounts**, then click **Save** | **Edit always-show list** |
+| Hide an account that is not on the list | Under **Your accounts**, add its handle to **Also hide these accounts, and mute them when muting is on**, then click **Save** | **Edit extra accounts to hide** |
 | Show, hide or mute an answer bot | Pick **Show**, **Hide here** or **Mute on X** in its row under **Bots that answer when tagged** (see [Bots](#bots)) | **Show / hide @grok**, or **Show or hide a bot** for any of the six; there is no Mute |
-| Hide posts that tag a bot | Tick **Also hide posts that tag a bot set to Hide or Mute** | **Hide / show posts that tag a hidden bot** |
+| Hide posts that tag a bot | Under **Bots that answer when tagged**, tick **Also hide posts that tag a bot set to Hide or Mute** | **Hide / show posts that tag a hidden bot** |
 | Fetch the list now | **Refresh list now** | **Refresh list now** |
 | Mute listed accounts on your X account | Tick **Mute listed accounts on X** (see [Muting](#muting)) | Not available |
+
+**Bots that answer when tagged** and **Your accounts** start folded; click a
+heading to open it. A folded heading shows its counts, such as "Show 5 · Hide
+here 1 · Mute on X 0" or "Always show 2 · Also hide 0".
 
 **Save** saves both boxes at once. On an x.com tab, the popup also counts what
 it hid there: "This tab: N posts from M accounts hidden (K on screen now)", with
 ", plus N posts that tag a bot" before the brackets when tag hiding hid any.
-The userscript has no counter.
+While hiding is paused, it says "Paused on this tab." The userscript has no
+counter.
 
 ## What gets hidden
 
@@ -179,7 +187,7 @@ Under "Don't!", X's
 list: "Use non-API-based forms of automation, such as scripting the X website.
 The use of these techniques may result in the permanent suspension of your
 account." (read on 2026-11-06, unchanged on 2026-11-08). Muting with
-x-slop-hide scripts the X website, and the popup says so next to the switch.
+x-slop-hide scripts the X website, and the popup says so under the switch.
 Turn it on only if you accept that risk for the account you mute from.
 
 A listing can be a mistake (clankwall's homepage says "Flags aren’t proof of
@@ -191,12 +199,12 @@ account on X yourself, because x-slop-hide never unmutes.
 
 ### Turning it on
 
-1. Under **Always show these accounts**, add every listed account you never
-   want muted, and click **Save**. Accounts there are never hidden and never
-   muted. Everything under **Also hide these accounts** is muted too, so take
-   out any account there that you only want hidden. The exception is one of
-   the six bots under [Bots](#bots): it follows its row, so it is muted only
-   when that row says **Mute on X**.
+1. Under **Your accounts**, add every listed account you never want muted to
+   **Always show these accounts**, and click **Save**. Accounts there are
+   never hidden and never muted. Everything under **Also hide these
+   accounts** is muted too, so take out any account there that you only want
+   hidden. The exception is one of the six bots under [Bots](#bots): it
+   follows its row, so it is muted only when that row says **Mute on X**.
 2. Open x.com in a tab, logged in as the account to mute from.
 3. From that tab, open the popup and tick **Mute listed accounts on X**. The
    popup asks the tab which account is logged in and ties muting to that
@@ -266,10 +274,16 @@ lists each reason.
 
 ### What it records
 
-The popup shows today's counts and the totals, in this form: "Muting as @you.
-Today (UTC): 3 of 25 mutes, 5 of 50 visits · next visit in 2 min. So far: 3
-muted (3 seen on your muted list, 0 not found there), 1 already muted, 1 you
-follow, 0 skipped." Skipped means no post, or 2 failed visits.
+The popup shows today's counts and the totals in three lines, with a bar
+between the first two that fills toward the 25 mutes:
+
+```
+Muting as @you
+Today (UTC): 3 of 25 mutes, 5 of 50 visits · next visit in 2 min
+So far: 3 muted (3 seen on your muted list, 0 not found there), 1 already muted, 1 you follow, 0 skipped.
+```
+
+Skipped means no post, or 2 failed visits.
 
 The record is `xsh:mutes` in the extension's local storage: one entry per
 account visited, with its status, the time, X's notice text, and whether a
