@@ -205,6 +205,40 @@ x.com keeps its posts in page order, which the check for posts above the
 page's post relies on. A post above the page's post that first appears after
 x.com has unmounted the page's post (a long chain scrolled far up) gets a pair.
 
+On 2026-11-09, version 0.6.0's export and import page ran in Chromium 156
+(headless, through Playwright) with the unpacked extension, the browser's own
+downloads and the page's own file input. The real list (772 handles)
+downloaded, and x.com was made unresolvable. The profile started with one
+account in each box, @grok set to Hide here, and muting on at 50 a day as a
+made-up account, with no x.com tab open. All 47 checks passed:
+
+- **Export settings** saved `x-slop-hide-settings-2026-11-09.json` with exactly
+  its seven keys. The file held no muting setting, muting handle, list address,
+  pause or labels. **Export Also hide as a list** saved one handle per line.
+- A shared list with a `#` note line, a blank line, an upper-case handle with
+  `@`, a listed account and an Always show account brought up a preview. It
+  named each account Also hide would gain, the Always show account that stays
+  shown, the account muting runs as and the two accounts muting could newly
+  reach. Nothing was stored until **Import these changes**.
+- A settings file that also set muting off, a cap of 100, another muting
+  account, a list address, pause and labels changed only Also hide, one bot
+  choice and the tag setting. The other six stayed as they were, and the
+  preview named @AskPerplexity, set to Mute on X, among the new mute targets.
+- A shared list of 30 new handles named the first 12, then "and 18 more", in
+  the Also hide line and in the muting note, each with **Show all 30
+  accounts** under it. The muting note's fold started closed and opened to all
+  30; **Cancel** then stored nothing.
+- **Cancel**, and a list whose second line had a note after the handle
+  ("Not imported: line 2 is not an X handle."), stored nothing.
+- With the settings changed after the preview, the first click on **Import
+  these changes** showed a new preview with a notice and stored nothing; the
+  second stored the new preview.
+- Importing the first export into empty settings and exporting again gave the
+  same file apart from its date.
+- The page made no request outside the extension and logged no error. The
+  popup's **Export or import** link, under **Your accounts**, opened the page
+  in a new tab.
+
 ## In daily use
 
 Since 2026-11-07 (UTC) the extension has run in Brave on Windows, on the
@@ -223,4 +257,7 @@ Hiding in Brave (muting has run there, above), Tampermonkey, Violentmonkey in
 Firefox, the 6-hour refresh actually firing, reposts, and the notifications
 page. For muting: a bot row set to **Mute on X** and accounts from **Also hide
 these accounts** on real x.com, more than two days in a row, how X responds to
-this pace over weeks, and X in other languages.
+this pace over weeks, and X in other languages. For export and import: Brave
+and branded Chrome, a file picked from a desktop file dialog (the run above set
+the file input directly), and whether a file picker opened from the popup
+would close it, which is why import has a page of its own.

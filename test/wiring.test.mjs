@@ -1373,3 +1373,288 @@ test('userscript: never shows label buttons, even with labelling saved as on', a
   assert.equal(us.document.getElementById('xsh-bar-style') === null, true, 'compared as a boolean: printing a node hangs the run');
   assert.doesNotMatch(src('src/userscript-adapter.js'), /saveLabel|getLabels|subscribeLabels|answerPresent/);
 });
+
+// ------------------------------------------------------------------ export and import page
+
+// Run the real settings.js against settings.html. Downloads are recorded
+// from the <a download> click, and a picked file is set on the input.
+function loadSettings(store) {
+  const { window, document } = parseHTML(src('src/settings.html'));
+  const chrome = fakeChrome();
+  Object.assign(chrome.store, structuredClone(store));
+  const made = [];
+  class TestURL extends URL {
+    static createObjectURL(blob) {
+      made.push(blob);
+      return `blob:test/${made.length}`;
+    }
+    static revokeObjectURL() {}
+  }
+  const downloads = [];
+  document.addEventListener('click', (e) => {
+    if (e.target.tagName === 'A' && e.target.hasAttribute('download')) downloads.push(e.target.getAttribute('download'));
+  });
+  const ctx = vm.createContext({ window, document, chrome, console, URL: TestURL, Blob });
+  vm.runInContext(src('src/lib.js'), ctx, { filename: 'src/lib.js' });
+  vm.runInContext(src('src/settings.js'), ctx, { filename: 'src/settings.js' });
+  const $ = (id) => document.getElementById(id);
+  const click = (id) => $(id).dispatchEvent(new window.Event('click'));
+  // A `text` of null fails the test if the page reads the file at all.
+  const pickFile = (name, text, size) => {
+    const f = {
+      name,
+      size: size === undefined ? Buffer.byteLength(text) : size,
+      text: async () => (text === null ? assert.fail('file was read') : text),
+    };
+    Object.defineProperty($('file'), 'files', { configurable: true, value: [f] });
+    $('file').dispatchEvent(new window.Event('change'));
+  };
+  const changes = () => [...document.querySelectorAll('#changes li')].map((li) => li.textContent);
+  return { chrome, document, $, click, pickFile, changes, made, downloads };
+}
+
+const LIST = { handles: ['listed', 'grok'], fetchedAt: 1, source: 's' };
+const settingsFile = (o) => JSON.stringify({ format: 'x-slop-hide-settings', version: 1, ...o });
+
+test('settings page: export saves only the account boxes, bot choices and tag setting', async () => {
+  const settings = {
+    allowlist: 'pal',
+    extraList: 'spam_b\nspam_a',
+    bots: { grok: 'mute' },
+    hideBotMentions: true,
+    muteEnabled: true,
+    muteAccount: 'me_here',
+    muteCap: 100,
+    feedUrl: 'https://example.com/list.txt',
+    paused: true,
+    labeling: true,
+  };
+  const p = loadSettings({ 'xsh:list': LIST, 'xsh:settings': settings });
+  await settle();
+  assert.equal(p.$('have').textContent, 'Now: Always show 1 · Also hide 2 · 1 bot choice saved');
+  p.click('exportSettings');
+  await settle();
+  assert.deepEqual(p.downloads, [`x-slop-hide-settings-${lib.utcDay(Date.now())}.json`]);
+  assert.equal(p.made[0].type, 'application/json');
+  const out = JSON.parse(await p.made[0].text());
+  assert.deepEqual(Object.keys(out).sort(), ['alsoHide', 'alwaysShow', 'bots', 'exported', 'format', 'hideBotMentions', 'version']);
+  assert.deepEqual([out.alwaysShow, out.alsoHide, out.bots, out.hideBotMentions], [['pal'], ['spam_a', 'spam_b'], { grok: 'mute' }, true]);
+  assert.equal(p.$('exportMsg').textContent, 'Exported settings: Always show 1, Also hide 2, 1 bot choice.');
+  p.click('exportList');
+  await settle();
+  assert.equal(p.downloads[1], `x-slop-hide-also-hide-${lib.utcDay(Date.now())}.txt`);
+  assert.equal(await p.made[1].text(), 'spam_a\nspam_b\n');
+  assert.deepEqual(p.chrome.store['xsh:settings'], settings, 'export writes nothing');
+});
+
+test('settings page: Export Also hide as a list is off while Also hide is empty', async () => {
+  const p = loadSettings({ 'xsh:settings': { allowlist: 'pal' } });
+  await settle();
+  assert.equal(p.$('exportList').disabled, true);
+  assert.equal(p.$('have').textContent, 'Now: Always show 1 · Also hide 0 · 0 bot choices saved');
+});
+
+test('settings page: importing a list previews, writes nothing until Confirm, then adds to Also hide', async () => {
+  const settings = { allowlist: 'pal', extraList: 'spam_a', paused: false };
+  const p = loadSettings({ 'xsh:list': LIST, 'xsh:settings': settings });
+  await settle();
+  p.pickFile('shared.txt', '# from a friend\n@spam_a\nspam_b\nPal\n');
+  await settle();
+  assert.equal(p.$('preview').hidden, false);
+  assert.equal(p.$('fileKind').textContent, 'shared.txt: a list of 3 handles, for Also hide');
+  assert.deepEqual(p.changes(), ['Also hide gains 2 accounts: @pal, @spam_b.', '@pal will stay shown, because Always show has it.']);
+  assert.equal(p.$('muteNote').textContent, 'Muting is off. If you turn it on, it can also mute 1 account from this file: @spam_b.');
+  assert.deepEqual(p.chrome.store['xsh:settings'], settings, 'the preview writes nothing');
+  p.click('confirm');
+  await settle();
+  assert.deepEqual(p.chrome.store['xsh:settings'], { allowlist: 'pal', extraList: 'spam_a\npal\nspam_b', paused: false });
+  assert.equal(p.$('preview').hidden, true);
+  assert.equal(p.$('msg').textContent, 'Imported: Also hide gained 2.');
+  assert.equal(p.$('have').textContent, 'Now: Always show 1 · Also hide 3 · 0 bot choices saved');
+});
+
+// Planted negative (issue #27), through the page.
+test('settings page: a file naming muting, its cap, its account or the list URL changes none of them', async () => {
+  const settings = { muteEnabled: false, muteCap: 25, muteAccount: null, feedUrl: '', paused: false, labeling: false };
+  const p = loadSettings({ 'xsh:list': LIST, 'xsh:settings': settings });
+  await settle();
+  p.pickFile(
+    'evil.json',
+    settingsFile({
+      alsoHide: ['spam'],
+      muteEnabled: true,
+      muteCap: 100,
+      muteAccount: 'someone',
+      feedUrl: 'https://evil.example/list.txt',
+      paused: true,
+      labeling: true,
+    }),
+  );
+  await settle();
+  assert.deepEqual(p.changes(), ['Also hide gains 1 account: @spam.']);
+  p.click('confirm');
+  await settle();
+  assert.deepEqual(p.chrome.store['xsh:settings'], { ...settings, extraList: 'spam' });
+});
+
+test('settings page: Cancel writes nothing', async () => {
+  const settings = { extraList: 'spam_a' };
+  const p = loadSettings({ 'xsh:settings': settings });
+  await settle();
+  p.pickFile('s.json', settingsFile({ alwaysShow: ['pal'], bots: { grok: 'show' }, hideBotMentions: true }));
+  await settle();
+  assert.deepEqual(p.changes(), [
+    'Always show gains 1 account: @pal.',
+    '@grok: follows the list → Show.',
+    'Turns on hiding posts that tag a bot set to Hide here or Mute on X.',
+  ]);
+  p.click('cancel');
+  await settle();
+  assert.deepEqual(p.chrome.store['xsh:settings'], settings);
+  assert.equal(p.$('preview').hidden, true);
+  assert.equal(p.$('msg').textContent, 'Nothing imported.');
+  p.click('confirm');
+  await settle();
+  assert.deepEqual(p.chrome.store['xsh:settings'], settings, 'Confirm after Cancel does nothing');
+});
+
+test('settings page: a bad file is refused whole, and an oversize one is not read', async () => {
+  const settings = { extraList: 'spam_a' };
+  const p = loadSettings({ 'xsh:settings': settings });
+  await settle();
+  p.pickFile('list.txt', 'spam_b\nnot a handle\n');
+  await settle();
+  assert.equal(p.$('msg').textContent, 'Not imported: line 2 is not an X handle.');
+  assert.ok(p.$('msg').classList.contains('bad'));
+  assert.equal(p.$('preview').hidden, true);
+  p.pickFile('big.txt', null, lib.DEFAULTS.maxBytes + 1);
+  await settle();
+  assert.equal(p.$('msg').textContent, 'Not imported: the file is larger than 1 MB.');
+  p.pickFile('s.json', settingsFile({ bots: { grok: 'block' } }));
+  await settle();
+  assert.equal(p.$('msg').textContent, 'Not imported: "bots" has a choice other than show, hide or mute.');
+  assert.deepEqual(p.chrome.store['xsh:settings'], settings);
+});
+
+test('settings page: settings that change after the preview are shown again, not written', async () => {
+  const p = loadSettings({ 'xsh:list': LIST, 'xsh:settings': { extraList: '' } });
+  await settle();
+  p.pickFile('shared.txt', 'spam_a\nspam_b\n');
+  await settle();
+  assert.equal(p.$('stale').hidden, true);
+  assert.deepEqual(p.changes(), ['Also hide gains 2 accounts: @spam_a, @spam_b.']);
+  // Meanwhile, in the popup: muting turned on, and spam_a saved to Also hide.
+  const changed = { extraList: 'spam_a', muteEnabled: true, muteAccount: 'me_here', muteCap: 50 };
+  p.chrome.store['xsh:settings'] = structuredClone(changed);
+  p.click('confirm');
+  await settle();
+  assert.deepEqual(p.chrome.store['xsh:settings'], changed, 'nothing written');
+  assert.equal(p.$('stale').hidden, false);
+  assert.deepEqual(p.changes(), ['Also hide gains 1 account: @spam_b.']);
+  assert.equal(p.$('muteNote').className, 'warn');
+  assert.equal(
+    p.$('muteNote').textContent,
+    'Muting is on as @me_here. After this import it can also mute 1 more account: @spam_b. It mutes up to 50 a day, skips accounts you follow, and never unmutes.',
+  );
+  p.click('confirm');
+  await settle();
+  assert.equal(p.chrome.store['xsh:settings'].extraList, 'spam_a\nspam_b');
+  assert.equal(p.$('msg').textContent, 'Imported: Also hide gained 1.');
+});
+
+test('settings page: a bot set to Mute on X is named in the muting note', async () => {
+  const p = loadSettings({ 'xsh:list': LIST, 'xsh:settings': { muteEnabled: true, muteAccount: 'me_here' } });
+  await settle();
+  p.pickFile('s.json', settingsFile({ bots: { askperplexity: 'mute' } }));
+  await settle();
+  assert.deepEqual(p.changes(), ['@AskPerplexity: follows the list → Mute on X.']);
+  assert.equal(
+    p.$('muteNote').textContent,
+    'Muting is on as @me_here. After this import it can also mute 1 more account: @askperplexity. Bots among them: @AskPerplexity. ' +
+      'It mutes up to 25 a day, skips accounts you follow, and never unmutes.',
+  );
+});
+
+// A shared list can hold hundreds of handles. Each preview line names the
+// first 12, and every one of them is under Show all, muting note included.
+test('settings page: a line with more than 12 accounts lists all of them under Show all', async () => {
+  const hs = Array.from({ length: 14 }, (_, i) => `spam_${String(i).padStart(2, '0')}`);
+  const at = (xs) => xs.map((h) => `@${h}`).join(', ');
+  const p = loadSettings({ 'xsh:list': LIST, 'xsh:settings': { muteEnabled: true, muteAccount: 'me_here' } });
+  await settle();
+  p.pickFile('shared.txt', `${hs.join('\n')}\n`);
+  await settle();
+  const li = p.document.querySelectorAll('#changes li');
+  assert.equal(li.length, 1);
+  assert.equal(li[0].firstChild.textContent, `Also hide gains 14 accounts: ${at(hs.slice(0, 12))} and 2 more.`);
+  assert.equal(li[0].querySelector('details summary').textContent, 'Show all 14 accounts');
+  assert.equal(li[0].querySelector('details p').textContent, at(hs));
+  const mute = p.$('muteNote');
+  assert.equal(
+    mute.firstChild.textContent,
+    `Muting is on as @me_here. After this import it can also mute 14 more accounts: ${at(hs.slice(0, 12))} and 2 more. ` +
+      'It mutes up to 25 a day, skips accounts you follow, and never unmutes.',
+  );
+  assert.equal(mute.querySelector('details summary').textContent, 'Show all 14 accounts');
+  assert.equal(mute.querySelector('details p').textContent, at(hs));
+
+  const twelve = loadSettings({ 'xsh:settings': { muteEnabled: true, muteAccount: 'me_here' } });
+  await settle();
+  twelve.pickFile('shared.txt', `${hs.slice(0, 12).join('\n')}\n`);
+  await settle();
+  assert.deepEqual(twelve.changes(), [`Also hide gains 12 accounts: ${at(hs.slice(0, 12))}.`]);
+  assert.equal(twelve.document.querySelectorAll('#preview details').length, 0, 'no Show all at 12');
+});
+
+test('settings page: a second click on Confirm writes once', async () => {
+  const p = loadSettings({ 'xsh:settings': { extraList: 'spam_a' } });
+  let writes = 0;
+  const set = p.chrome.storage.local.set;
+  p.chrome.storage.local.set = async (o) => {
+    writes += 1;
+    return set(o);
+  };
+  await settle();
+  p.pickFile('shared.txt', 'spam_b\n');
+  await settle();
+  p.click('confirm');
+  p.click('confirm');
+  await settle();
+  assert.equal(writes, 1);
+  assert.equal(p.chrome.store['xsh:settings'].extraList, 'spam_a\nspam_b');
+  assert.equal(p.$('msg').textContent, 'Imported: Also hide gained 1.');
+});
+
+test('settings page: Cancel while Confirm reads settings stops the write', async () => {
+  const settings = { extraList: 'spam_a' };
+  const p = loadSettings({ 'xsh:settings': settings });
+  await settle();
+  p.pickFile('shared.txt', 'spam_b\n');
+  await settle();
+  p.click('confirm');
+  p.click('cancel');
+  await settle();
+  assert.deepEqual(p.chrome.store['xsh:settings'], settings);
+  assert.equal(p.$('msg').textContent, 'Nothing imported.');
+});
+
+test('settings page: a file with nothing new says so and offers no Confirm', async () => {
+  const p = loadSettings({ 'xsh:settings': { extraList: 'spam_a' } });
+  await settle();
+  p.pickFile('shared.txt', 'spam_a\n');
+  await settle();
+  assert.equal(p.$('preview').hidden, true);
+  assert.equal(p.$('msg').textContent, 'Nothing to import: your settings already have everything in this file.');
+});
+
+test('popup: Export or import opens the options page', async () => {
+  const p = loadPopup({ 'xsh:settings': {} });
+  let opened = 0;
+  p.chrome.runtime.openOptionsPage = async () => {
+    opened += 1;
+  };
+  await settle();
+  p.document.getElementById('files').dispatchEvent(new p.window.Event('click'));
+  await settle();
+  assert.equal(opened, 1);
+});

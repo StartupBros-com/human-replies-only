@@ -263,6 +263,9 @@
     $('extra').value = extraList;
     saveSettings({ allowlist, extraList }).then(render);
   });
+  // Export and import live on the options page: a file picker opened from
+  // the popup can close the popup before the file is read.
+  $('files').addEventListener('click', () => chrome.runtime.openOptionsPage());
   $('refresh').addEventListener('click', async () => {
     $('refresh').disabled = true;
     $('refresh').textContent = 'Refreshing…';

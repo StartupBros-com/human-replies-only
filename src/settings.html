@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>x-slop-hide: export and import</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff; --fg: #0f1419; --muted: #536471; --line: #e1e5e9; --card: #f7f9fa;
+    --focus: #2563eb; --link: #1d4ed8; --btn: #e11d48;
+    --warn-bg: #fff7ed; --warn-line: #f59e0b; --bad: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15181c; --fg: #e7e9ea; --muted: #8b98a5; --line: #2f3439; --card: #1d2126;
+      --focus: #93c5fd; --link: #93c5fd;
+      --warn-bg: #2b2112; --warn-line: #d97706; --bad: #f87171;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body { max-width: 600px; margin: 0 auto; padding: 20px 16px 32px; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+  p { margin: 0; }
+  a { color: var(--link); }
+  [hidden] { display: none !important; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  .bad { color: var(--bad); }
+
+  .top { display: flex; align-items: center; gap: 10px; }
+  .top img { display: block; }
+  .top h1 { font-size: 18px; margin: 0; }
+  #have { margin-top: 6px; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-top: 14px; }
+  .card h2 { font-size: 15px; margin: 0 0 6px; }
+  .hint { font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .warn { margin-top: 10px; padding: 8px 10px; font-size: 13px; line-height: 1.4; background: var(--warn-bg); border-left: 3px solid var(--warn-line); border-radius: 4px; }
+  .btnrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  button { font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); cursor: pointer; }
+  button.primary { background: var(--btn); border-color: var(--btn); color: #fff; font-weight: 600; }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .field { display: block; font-size: 13px; margin-bottom: 6px; }
+  input[type='file'] { display: block; max-width: 100%; font: inherit; font-size: 13px; }
+  #msg { margin-top: 10px; font-size: 13px; }
+  #preview { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+  #fileKind { font-weight: 600; }
+  #changes { margin: 8px 0 0; padding-left: 20px; }
+  #changes li { margin: 4px 0; overflow-wrap: anywhere; }
+  #muteNote { overflow-wrap: anywhere; }
+  #preview summary { margin-top: 4px; color: var(--link); cursor: pointer; }
+  #preview details p { margin-top: 4px; }
+
+  footer { margin-top: 16px; font-size: 12px; color: var(--muted); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <img src="../icons/icon-32.png" width="24" height="24" alt="">
+  <h1>x-slop-hide: export and import</h1>
+</header>
+<p id="have" class="small muted">Loading…</p>
+
+<section class="card">
+  <h2>Export</h2>
+  <p class="small">A settings file holds your Always show and Also hide accounts, each bot's choice, and whether posts that tag a hidden bot are hidden.</p>
+  <p class="hint">It never holds muting on or off, the number of mutes a day, the account muting runs as, the list address, pause or your labels.</p>
+  <div class="btnrow">
+    <button id="exportSettings" class="primary">Export settings</button>
+    <button id="exportList">Export Also hide as a list</button>
+  </div>
+  <p class="hint">The list is a text file with one handle per line. Anyone can import it into their own Also hide.</p>
+  <p id="exportMsg" class="small muted" hidden></p>
+</section>
+
+<section class="card">
+  <h2>Import</h2>
+  <label class="field" for="file">A settings file, or a text file of handles (one per line; lines starting with # are skipped)</label>
+  <input type="file" id="file" accept=".json,.txt,application/json,text/plain">
+  <p class="hint">Import adds accounts and never removes one. A settings file also sets the bot choices and tag setting it holds. It never turns muting on and never changes the number of mutes a day. Nothing changes until you confirm.</p>
+  <p id="msg" hidden></p>
+  <div id="preview" hidden>
+    <p id="fileKind"></p>
+    <p id="stale" class="warn" hidden>Your settings changed since this preview, so it was made again. Check it before importing.</p>
+    <ul id="changes"></ul>
+    <div id="muteNote" hidden></div>
+    <div class="btnrow">
+      <button id="confirm" class="primary">Import these changes</button>
+      <button id="cancel">Cancel</button>
+    </div>
+  </div>
+</section>
+
+<footer>Exported files stay where you save them, and import reads only the file you pick. Nothing is sent anywhere. <a href="https://github.com/StartupBros-com/x-slop-hide#readme" target="_blank" rel="noopener">How x-slop-hide works</a></footer>
+<script src="lib.js"></script>
+<script src="settings.js"></script>
+</body>
+</html>

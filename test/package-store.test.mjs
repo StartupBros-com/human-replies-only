@@ -29,6 +29,8 @@ const LOADED = [
   'src/lib.js',
   'src/popup.html',
   'src/popup.js',
+  'src/settings.html',
+  'src/settings.js',
 ];
 
 test('the manifest passes the store checks', () => {
@@ -51,7 +53,7 @@ test('a manifest key, a long name or description, a bad version or a version mis
   assert.deepEqual(checkManifest([]), ['manifest.json is not a JSON object']);
 });
 
-test('the extension loads its worker, content scripts, popup, the popup page\'s scripts and image, and its icons', () => {
+test('the extension loads its worker, content scripts, popup, options page, their scripts and image, and its icons', () => {
   const r = referencedPaths(manifest, readTree);
   assert.deepEqual(r.paths, LOADED);
   assert.deepEqual(r.missing, []);
