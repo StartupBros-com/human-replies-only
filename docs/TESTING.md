@@ -134,8 +134,9 @@ read a 3-account fixture list and nothing reached the real one. The checks:
 
 - Labels are off on a new install: the popup said "Off · 0 saved" with Export
   and Delete disabled, and a post page had no Slop / Not slop pair. Once the
-  switch was ticked, each reply got a pair and the post the page is about got
-  none. The pair of a reply hidden by the list was hidden with it.
+  switch was ticked, each reply got a pair, and the post the page is about and
+  the post above it, which it replies to, got none. The pair of a reply hidden
+  by the list was hidden with it.
 - **Slop** saved a record with every documented field and added the account
   to Also hide, which hid the reply at once. **Not slop** added its account to
   Always show. Clicking a pressed button again cleared the label and left the
@@ -149,7 +150,7 @@ read a 3-account fixture list and nothing reached the real one. The checks:
   named the list's host (`clankwall.vogel.dev`) and said `hidden: true`.
 - When the page reused a reply's element for another post, as X does when it
   scrolls, the pair moved to the new post, unpressed and not doubled. The home
-  timeline and a profile had no pairs.
+  timeline, a profile and the post's quotes page had no pairs.
 - The popup said "On · 3 saved". **Export** downloaded
   `x-slop-hide-labels-2026-11-09.jsonl`: 3 records, oldest first, each with
   exactly the documented fields. **Delete** asked "Click again to delete 3
@@ -173,9 +174,9 @@ read a 3-account fixture list and nothing reached the real one. The checks:
   Turning muting off cleared the alarm. Nothing threw an uncaught error.
 
 The runner took three shortcuts: it turned muting on by writing the setting to
-storage, ran most ticks by calling the worker's own tick through its queue
-(one visit started from the real alarm), and skipped the wait between visits
-through the same queue.
+storage, ran most ticks by calling the function the worker's alarm calls (one
+visit started from the real alarm), and skipped the wait between visits
+through the worker's queue.
 
 Four earlier runs that day failed. Two could not save the export download,
 which was the runner's download folder. One found a defect: the worker refused
@@ -185,9 +186,24 @@ own address, and a wiring test covers the popup opened in a tab. The fourth
 asked for the tab list before any x.com tab was open; that check now runs with
 one open.
 
+A fifth run passed, and a review of the branch after it found two more
+defects. The worker asked for an x.com tab from inside its own queue, so a tab
+that had just loaded, whose answer waits on its own question to the worker,
+could not answer within the 1.5 s timeout and counted as no tab; the worker now
+asks between two passes of its queue. And the pairs also appeared on the posts
+above the page's post and on its quotes, likes and photo pages; they now appear
+only below the post, on its own page. Wiring and DOM tests cover both, and the
+run above adds a post above the page's post and a quotes page to the fixture.
+The first run after those fixes passed all it ran but skipped the
+background-tab check, because the visit had ended before the runner read its
+tab; the runner now reads the tab while the visit runs and fails if it cannot.
+
 Not tested: real x.com's own handlers (the fixture page has plain listeners),
 Brave, whether 50 or 100 mutes a day is safe for an account, and the
-userscript, whose missing pair is covered only by the unit tests.
+userscript, whose missing pair is covered only by the unit tests. Nor whether
+x.com keeps its posts in page order, which the check for posts above the
+page's post relies on. A post above the page's post that first appears after
+x.com has unmounted the page's post (a long chain scrolled far up) gets a pair.
 
 ## In daily use
 

@@ -7,9 +7,9 @@
 // calls X's API.
 //
 // Labels, when the user has turned them on (extension only): on a post's
-// page, every other post gets a small Slop / Not slop pair. A click there is
-// the only thing this script acts on in the user's own tabs, and only a
-// click the browser marks as the user's own.
+// own page, each post below it gets a small Slop / Not slop pair. A click
+// there is the only thing this script acts on in the user's own tabs, and
+// only a click the browser marks as the user's own.
 //
 // State comes from an adapter: the extension adapter below (chrome.storage,
 // filled by background.js), or globalThis.XSlopHideAdapter when the userscript
@@ -45,6 +45,12 @@
   const asked = new Set(); // post ids whose label was read or is being read
   const toRead = new Set();
   const notes = new Map(); // post id -> why the last click was not saved
+  // Ids of the posts above the one the page is about (the posts it replies
+  // to), for the page at ancestorsPath. Kept by id, since X reuses a post's
+  // nodes, and for as long as the page is open, since X unmounts posts
+  // scrolled far away: deep in the replies the page's post may be gone.
+  let ancestors = new Set();
+  let ancestorsPath = null;
 
   function injectStyle() {
     if (document.getElementById('xsh-style')) return;
@@ -105,14 +111,49 @@
 
   // ---------------------------------------------------------------- labels
 
-  // The post a pair would label, or null: on a post's page, any other post
-  // with its own link and author. The post the page is about gets none.
+  function ancestorIds() {
+    if (ancestorsPath !== location.pathname) {
+      ancestorsPath = location.pathname;
+      ancestors = new Set();
+    }
+    return ancestors;
+  }
+
+  // While the page's post is mounted, remember every post above it in the
+  // document. Returns true when that adds one, which may already have a pair.
+  // A post above it that is first mounted after the page's post has been
+  // unmounted (a long chain scrolled far up) is not caught.
+  function noteAncestors(focal) {
+    const known = ancestorIds();
+    const above = [];
+    for (const art of document.querySelectorAll(ARTICLE)) {
+      const url = postKey(art);
+      const post = url && L.statusOf(url);
+      if (!post) continue;
+      if (post.id === focal.id) {
+        let grew = false;
+        for (const id of above) {
+          if (!known.has(id)) {
+            known.add(id);
+            grew = true;
+          }
+        }
+        return grew;
+      }
+      above.push(post.id);
+    }
+    return false;
+  }
+
+  // The post a pair would label, or null: on a post's own page (not its
+  // quotes, likes or a photo), a post below the page's post with its own link
+  // and author. The page's post and the posts above it get none.
   function labelTarget(article) {
-    const focal = L.statusOf(location.pathname);
+    const focal = L.statusPageOf(location.pathname);
     if (!focal) return null;
     const url = postKey(article);
     const post = url && L.statusOf(url);
-    if (!post || post.id === focal.id) return null;
+    if (!post || post.id === focal.id || ancestorIds().has(post.id)) return null;
     const author = L.authorHandleOf(article);
     return author ? { id: post.id, url, author } : null;
   }
@@ -207,6 +248,15 @@
     if (!asked.has(t.id)) readLabel(t.id);
   }
 
+  // Bring the pairs on these posts up to date, or on every post when a post
+  // above the page's post has just been found: it may already have a pair.
+  function syncBars(arts) {
+    if (!labeling) return;
+    const focal = L.statusPageOf(location.pathname);
+    const grew = focal ? noteAncestors(focal) : false;
+    for (const art of grew ? document.querySelectorAll(ARTICLE) : arts) syncBar(art);
+  }
+
   function renderId(id) {
     for (const bar of document.querySelectorAll(`[${BAR}]`)) {
       if (bar.getAttribute(BAR) === id) renderBar(bar, id, bar.getAttribute('data-xsh-author') || '');
@@ -269,10 +319,9 @@
 
   function rescanAll() {
     const owner = L.pageOwner(location.pathname);
-    for (const art of document.querySelectorAll(ARTICLE)) {
-      evaluate(art, owner);
-      syncBar(art);
-    }
+    const arts = document.querySelectorAll(ARTICLE);
+    for (const art of arts) evaluate(art, owner);
+    syncBars(arts);
     // Cells hidden earlier whose post has since been replaced or unlisted.
     for (const cell of document.querySelectorAll(`[${ATTR}]`)) {
       const art = cell.matches(ARTICLE) ? cell : cell.querySelector(ARTICLE);
@@ -330,11 +379,13 @@
       else for (const art of articles) touched.add(art);
     }
     // A node added then removed in the same batch must not affect live state or stats.
+    const live = [];
     for (const art of touched) {
       if (!document.contains(art)) continue;
       evaluate(art, owner);
-      syncBar(art);
+      live.push(art);
     }
+    syncBars(live);
   }
 
   function applyState(s) {

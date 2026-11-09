@@ -214,11 +214,30 @@ async function finishJob(job, result) {
   await closeJobTab(job.tabId);
 }
 
-// One step of the mute loop, run by the alarm once a minute: finish a job
-// that ran out of time, or start the next one if today's caps allow. At 50
-// or 100 a day, a mute visit also needs an x.com tab of the user's own open;
-// a check of settings/muted/all runs either way.
-async function tick() {
+// What tickWith returns when a mute visit is due at 50 or 100 a day and the
+// tabs have not been asked yet.
+const ASK_TABS = 'ask-tabs';
+
+// One step of the mute loop, run by the alarm once a minute (runTick): finish
+// a job that ran out of time, or start the next one if today's caps allow.
+// Takes no argument, because serial() passes the previous step's result.
+function tick() {
+  return tickWith(null);
+}
+
+// The alarm's step. At 50 or 100 a day a mute visit also needs an x.com tab
+// of the user's own open, and the tabs are asked outside the queue: a tab
+// that has just loaded answers only once the worker has answered its
+// xsh:job question, which waits in the queue behind any step running there.
+async function runTick() {
+  if ((await serial(tick)) !== ASK_TABS) return;
+  const open = await userHasXOpen();
+  await serial(() => tickWith(open));
+}
+
+// xOpen is null until the tabs are asked, then whether the user has an x.com
+// tab open. A check of settings/muted/all runs either way.
+async function tickWith(xOpen) {
   const s = await settings();
   const job = await getJob();
   const now = Date.now();
@@ -247,7 +266,10 @@ async function tick() {
     await startJob('check', null, s.muteAccount, now);
     return;
   }
-  if (canVisit && L.capNeedsXOpen(cap)) canVisit = await userHasXOpen();
+  if (canVisit && L.capNeedsXOpen(cap)) {
+    if (xOpen === null) return ASK_TABS;
+    canVisit = xOpen === true;
+  }
   if (pending && !canVisit) {
     await startJob('check', null, s.muteAccount, now);
     return;
@@ -276,7 +298,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === ALARM) refresh();
-  if (a.name === MUTE_ALARM || a.name === JOB_ALARM) serial(tick);
+  if (a.name === MUTE_ALARM || a.name === JOB_ALARM) runTick();
 });
 
 // The user closed a job's tab before it reported: count it as an error.

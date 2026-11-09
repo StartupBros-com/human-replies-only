@@ -61,6 +61,67 @@ test('no pair off a post page, with labelling off, or without a way to save (the
   assert.equal(bars(off), 0);
 });
 
+// A post the page's post replies to, shown above it.
+const UP = post({ author: 'parent', status: '0' });
+const timeline = (t) => t.document.querySelector('[aria-label="Timeline"]');
+const barIds = (t) => [...t.document.querySelectorAll('[data-xsh-bar]')].map((b) => b.getAttribute('data-xsh-bar'));
+function cellFrom(t, html) {
+  const d = t.document.createElement('div');
+  d.innerHTML = html;
+  return d.firstElementChild;
+}
+const added = (target, nodes) => ({ type: 'childList', target, addedNodes: nodes, removedNodes: [] });
+const removed = (target, nodes) => ({ type: 'childList', target, addedNodes: [], removedNodes: nodes });
+
+test("no pair on the posts above the page's post, nor on its quotes, likes or photo pages", async () => {
+  const t = runContent(page([UP, ...THREAD]), { pathname: PAGE, state: on(), labels: {} });
+  const slash = runContent(page(THREAD), { pathname: `${PAGE}/`, state: on(), labels: {} });
+  const others = ['/quotes', '/likes', '/retweets', '/photo/1'].map((s) => runContent(page(THREAD), { pathname: `${PAGE}${s}`, state: on(), labels: {} }));
+  await settle();
+  assert.deepEqual(barIds(t), ['2', '3']);
+  assert.deepEqual(barIds(slash), ['2', '3'], 'a trailing slash is the same page');
+  for (const o of others) assert.deepEqual(barIds(o), [], o.location.pathname);
+});
+
+test("a post above the page's post loses its pair when that post mounts after it, and stays without one while that post is unmounted", async () => {
+  const t = runContent(page([UP, ...THREAD.slice(1)]), { pathname: PAGE, state: on(), labels: {} });
+  await settle();
+  assert.deepEqual(barIds(t), ['0', '2', '3'], "with the page's post not mounted, no post is known to be above it");
+  const focal = cellFrom(t, THREAD[0]);
+  timeline(t).insertBefore(focal, t.document.querySelector('[data-fixture="2"]'));
+  t.deliverMutations([added(timeline(t), [focal])]);
+  await settle();
+  assert.deepEqual(barIds(t), ['2', '3']);
+  // Deep in the replies X unmounts the page's post; a settings change then rescans every post.
+  focal.remove();
+  t.deliverMutations([removed(timeline(t), [focal])]);
+  t.push(on());
+  await settle();
+  assert.deepEqual(barIds(t), ['2', '3'], 'the post above is remembered');
+  // X mounts the post above again, in a new node.
+  const old = t.document.querySelector('[data-fixture="0"]');
+  old.remove();
+  const again = cellFrom(t, UP);
+  timeline(t).insertBefore(again, timeline(t).firstChild);
+  t.deliverMutations([removed(timeline(t), [old]), added(timeline(t), [again])]);
+  await settle();
+  assert.deepEqual(barIds(t), ['2', '3']);
+});
+
+test("on another post's page, a post that was above the last page's post gets a pair again", async () => {
+  const t = runContent(page([UP, ...THREAD]), { pathname: PAGE, state: on(), labels: {} });
+  await settle();
+  assert.deepEqual(barIds(t), ['2', '3']);
+  // X replaces the page with post 7's, where post 0 is a reply.
+  for (const c of [...timeline(t).children]) c.remove();
+  const cells = [post({ author: 'other', status: '7' }), UP].map((h) => cellFrom(t, h));
+  for (const c of cells) timeline(t).appendChild(c);
+  t.location.pathname = '/other/status/7';
+  t.deliverMutations([added(timeline(t), cells)]);
+  await settle();
+  assert.deepEqual(barIds(t), ['0']);
+});
+
 test("a click saves the reply's author, link, page and own text; the other button switches; a second click clears", async () => {
   const emoji = post({ author: 'reply_c', status: '4' }).replace('<span>hello </span>', '<span>Great insight </span><img alt="🚀" src="e.svg">');
   const t = runContent(page([...THREAD, emoji]), { pathname: PAGE, state: on(), labels: {} });

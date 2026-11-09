@@ -595,6 +595,16 @@
     return m ? { handle: m[1].toLowerCase(), id: m[2] } : null;
   }
 
+  const STATUS_PAGE_RE = /^\/([A-Za-z0-9_]{1,15})\/status\/(\d{1,25})\/?$/;
+
+  // The post a page is about, when the path is that post's own page
+  // (/h/status/123), or null. Its quotes, likes and photo pages
+  // (/h/status/123/quotes) are not the post's page.
+  function statusPageOf(pathname) {
+    const m = STATUS_PAGE_RE.exec(String(pathname || ''));
+    return m ? { handle: m[1].toLowerCase(), id: m[2] } : null;
+  }
+
   const statusUrl = (s) => `https://x.com/${s.handle}/status/${s.id}`;
 
   // Check and trim a label message from a content script. Returns
@@ -616,7 +626,7 @@
     if (label === null) return { ok: true, id: post.id, handle, label: null };
     const c = ctx || {};
     const s = c.settings || {};
-    const page = statusOf(m.page);
+    const page = statusPageOf(m.page);
     let host = 'list';
     try {
       host = new URL(c.source || DEFAULTS.feedUrl).host || host;
@@ -720,6 +730,7 @@
     LABEL_PREFIX,
     LABELS,
     statusOf,
+    statusPageOf,
     labelRecord,
     labelPatch,
     labelsFrom,

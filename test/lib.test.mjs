@@ -268,6 +268,14 @@ test('statusOf reads an author and post id from a path or an x.com URL', () => {
   }
 });
 
+test("statusPageOf accepts only a post's own page", () => {
+  assert.deepEqual(lib.statusPageOf('/Slop_A/status/1234'), { handle: 'slop_a', id: '1234' });
+  assert.deepEqual(lib.statusPageOf('/slop_a/status/1234/'), { handle: 'slop_a', id: '1234' });
+  for (const bad of [null, '', '/slop_a', '/slop_a/status/1234/quotes', '/slop_a/status/1234/likes', '/slop_a/status/1234/retweets', '/slop_a/status/1234/photo/1', '/slop_a/status/1234/analytics', 'https://x.com/slop_a/status/1234', '/slop_a/status/12a', '/sixteen_chars_xx/status/1', `/a/status/${'1'.repeat(26)}`]) {
+    assert.equal(lib.statusPageOf(bad), null, String(bad));
+  }
+});
+
 test('labelRecord checks the message and records what the list and boxes held', () => {
   const NOW_L = Date.UTC(2026, 10, 8, 12);
   const msg = { label: 'slop', handle: '@Slop_B', url: '/slop_b/status/111', page: '/OP/status/100', text: 'Great insight! 🚀' };
@@ -296,6 +304,9 @@ test('labelRecord checks the message and records what the list and boxes held', 
   const extra = lib.labelRecord({ ...msg, handle: 'extra_a', url: '/extra_a/status/6' }, LABEL_CTX, NOW_L).record;
   assert.deepEqual([extra.list, extra.extra, extra.hidden], [null, true, true]);
   assert.equal(lib.labelRecord({ ...msg, handle: 'extra_a', url: '/extra_a/status/6', page: '/extra_a/status/1' }, LABEL_CTX, NOW_L).record.hidden, false);
+  // A page that is not a post's own page is not recorded as one, and has no owner.
+  const quotes = lib.labelRecord({ ...msg, handle: 'extra_a', url: '/extra_a/status/6', page: '/extra_a/status/1/quotes' }, LABEL_CTX, NOW_L).record;
+  assert.deepEqual([quotes.page, quotes.hidden], [null, true]);
   // A listed account with nothing protecting it is hidden; pause is ignored.
   const s2 = { ...LABEL_CTX, settings: { paused: true } };
   assert.equal(lib.labelRecord({ ...msg, handle: 'slop_a', url: '/slop_a/status/7' }, s2, NOW_L).record.hidden, true);

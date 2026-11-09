@@ -1014,13 +1014,13 @@ test('background: the x.com check never counts a job tab, even one that failed t
   await alarm(bg);
   assert.equal(t.opened.length, 1, 'no visit');
   assert.deepEqual(t.asked, [], 'neither the job tab nor the discarded tab is asked');
-  // A tab that answers after 2 s is past the wait.
+  // A tab that answers after 2 s is past the wait: checked after its late yes.
   t.list = [{ id: 9 }];
   t.answer = (id) => (id === 9 ? sleep(2000).then(() => true) : true);
   bg.chrome.alarms.onAlarm.fire({ name: 'xsh-mute' });
-  await sleep(1700);
+  await sleep(2300);
   await settle();
-  assert.equal(t.opened.length, 1, 'no answer within 1.5 s counts as no');
+  assert.equal(t.opened.length, 1, 'no answer within 1.5 s counts as no, and a later yes is ignored');
   // One that answers after 0.8 s is in time.
   t.answer = (id) => (id === 9 ? sleep(800).then(() => true) : true);
   bg.chrome.alarms.onAlarm.fire({ name: 'xsh-mute' });
@@ -1030,6 +1030,22 @@ test('background: the x.com check never counts a job tab, even one that failed t
   assert.equal(lastTab(bg).url, 'https://x.com/slop_b');
   assert.deepEqual(t.asked, [9, 9], 'only tab 9 was ever asked');
   assert.deepEqual(bg.chrome.session['xsh:jobTabs'], [100, 101]);
+});
+
+test("background: the x.com check is asked outside the worker's queue, so a tab that just loaded can ask for its job first", async () => {
+  // As content.js does: a tab answers xsh:present only after the worker has
+  // answered its xsh:job question, which goes through the worker's queue.
+  const bg = await muteAt(100);
+  const t = bg.chrome.tabs;
+  t.list = [{ id: 7 }];
+  t.answer = (id, msg) => (id === 7 && msg.type === 'xsh:present' ? send(bg, { type: 'xsh:job' }, 7).then((job) => !job) : Promise.reject(new Error('no content script')));
+  const started = Date.now();
+  bg.chrome.alarms.onAlarm.fire({ name: 'xsh-mute' });
+  while (!t.opened.length && Date.now() - started < 1400) await sleep(20);
+  assert.equal(t.opened.length, 1, 'the visit starts without waiting out the 1.5 s');
+  assert.equal(lastTab(bg).url, 'https://x.com/slop_a');
+  assert.equal(t.queries, 1);
+  assert.equal(bg.chrome.store['xsh:mutes'].days[today()].visits, 1);
 });
 
 test('background: at 50 a day with no x.com tab open, a pending check of the muted list still runs', async () => {

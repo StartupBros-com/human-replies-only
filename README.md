@@ -324,9 +324,11 @@ check found it on your muted list.
 
 Labels are in the extension only, and off until you tick **Show Slop and Not
 slop buttons under replies on x.com** under **Label replies** in the popup.
-Then, on a post's page (`x.com/handle/status/...`), each reply gets a **Slop**
-and a **Not slop** button under it. The post the page is about gets none, and
-nothing appears on the home timeline, profiles or search.
+Then, on a post's own page (`x.com/handle/status/...`), each post below it
+gets a **Slop** and a **Not slop** button under it: the replies, and any other
+posts X lists after them. The post the page is about and the posts above it,
+which it replies to, get none, and nothing appears on its quotes or likes
+pages, the home timeline, profiles or search.
 
 - **Slop** saves the label and adds the account to **Also hide these
   accounts**, so its posts hide at once and, with muting on, it is muted too
