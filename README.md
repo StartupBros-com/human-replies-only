@@ -62,8 +62,10 @@ because the mutes are X's own.
 
 ### Extension (Chrome or another Chromium browser, desktop)
 
-1. Download this repository: **Code → Download ZIP** on GitHub, then unzip it.
-   Or `git clone https://github.com/StartupBros-com/x-slop-hide`.
+1. Download the `.zip` from the
+   [latest release](https://github.com/StartupBros-com/x-slop-hide/releases/latest)
+   and unzip it. Or `git clone https://github.com/StartupBros-com/x-slop-hide`
+   for the code on `main`, which can be ahead of the release.
 2. Open `chrome://extensions` (`brave://extensions` in Brave) and turn on
    **Developer mode**.
 3. Click **Load unpacked** and pick the folder that contains `manifest.json`.
@@ -73,10 +75,14 @@ because the mutes are X's own.
    The popup shows how many accounts are listed and when the list was last
    updated.
 
-An unpacked extension does not update itself. To get a new version, download
-again, replace the folder, and click the reload arrow on the extension's card.
-The list itself refreshes without that: on install, on browser start when it is
-due, and every 6 hours.
+An unpacked extension does not update itself. To get a new version, copy its
+files into the folder you loaded before, replacing the old ones (or `git pull`
+in a clone), then click the reload arrow on the extension's card. Your
+settings, lists and mute record stay. The browser keys an unpacked extension's
+storage to its folder, so loading a new version from a different folder adds a
+second copy that has none of them, and leaves both running. The list itself
+refreshes without any of this: on install, on browser start when it is due,
+and every 6 hours.
 
 ### Userscript (Violentmonkey or Tampermonkey)
 
