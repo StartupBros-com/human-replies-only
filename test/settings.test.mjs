@@ -187,6 +187,22 @@ test('importPlan overrides the legacy showGrok switch with a saved grok choice',
   assert.equal(lib.botChoice(apply(settings, plan), 'grok'), 'hide');
 });
 
+// A bot set to Show stays shown because of that choice, not because Always
+// show has it, so the preview names it apart, with its own reason.
+test('importPlan keeps bots set to Show apart from the accounts Always show keeps', () => {
+  const settings = { allowlist: 'kept_pal\npangram', bots: { grok: 'show', pangram: 'show' } };
+  const r = read(file({ alsoHide: ['grok', 'kept_pal', 'pangram', 'new_spam'] }));
+  const plan = lib.importPlan(settings, r, []);
+  assert.deepEqual(plan.addHide, ['grok', 'kept_pal', 'new_spam', 'pangram']);
+  assert.deepEqual(plan.staysShown, ['kept_pal', 'pangram'], 'Always show wins the reason when both apply');
+  assert.deepEqual(plan.staysShownBots, ['grok']);
+  // A bot the same file sets to Show counts too.
+  const viaFile = lib.importPlan({}, read(file({ alsoHide: ['askperplexity'], bots: { askperplexity: 'show' } })), []);
+  assert.deepEqual([viaFile.staysShown, viaFile.staysShownBots], [[], ['askperplexity']]);
+  const none = lib.importPlan({}, read(file({ alsoHide: ['grok'] })), []);
+  assert.deepEqual([none.staysShown, none.staysShownBots], [[], []]);
+});
+
 test('importPlan names the accounts muting newly reaches, and Also hide accounts Always show keeps', () => {
   const settings = { allowlist: 'kept_pal', muteEnabled: true, muteAccount: 'me_here', muteCap: 50 };
   const r = read(file({ alsoHide: ['listed', 'new_spam', 'kept_pal'], bots: { pangram: 'mute', grok: 'hide' } }));
@@ -195,6 +211,7 @@ test('importPlan names the accounts muting newly reaches, and Also hide accounts
   assert.deepEqual(plan.muteTargets, ['new_spam', 'pangram']);
   assert.deepEqual(plan.muteBots, ['pangram']);
   assert.deepEqual(plan.staysShown, ['kept_pal']);
+  assert.deepEqual(plan.staysShownBots, []);
   assert.equal(plan.muting, true);
   assert.equal(plan.muteAccount, 'me_here');
   assert.equal(plan.muteCap, 50);

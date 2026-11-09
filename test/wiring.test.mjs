@@ -1638,6 +1638,22 @@ test('settings page: Cancel while Confirm reads settings stops the write', async
   assert.equal(p.$('msg').textContent, 'Nothing imported.');
 });
 
+test('settings page: a bot set to Show stays shown for that reason, not because of Always show', async () => {
+  const bots = { grok: 'show', pangram: 'show', askperplexity: 'show' };
+  const p = loadSettings({ 'xsh:list': LIST, 'xsh:settings': { allowlist: 'pal', bots } });
+  await settle();
+  p.pickFile('shared.txt', 'grok\npangram\npal\nspam_b\n');
+  await settle();
+  assert.deepEqual(p.changes(), [
+    'Also hide gains 4 accounts: @grok, @pal, @pangram, @spam_b.',
+    '@pal will stay shown, because Always show has it.',
+    '@grok, @pangram will stay shown, because they are set to Show.',
+  ]);
+  p.pickFile('one.txt', 'AskPerplexity\n');
+  await settle();
+  assert.deepEqual(p.changes(), ['Also hide gains 1 account: @askperplexity.', '@AskPerplexity will stay shown, because it is set to Show.']);
+});
+
 test('settings page: a file with nothing new says so and offers no Confirm', async () => {
   const p = loadSettings({ 'xsh:settings': { extraList: 'spam_a' } });
   await settle();
