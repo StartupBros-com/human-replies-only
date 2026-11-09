@@ -11,8 +11,13 @@ dashboard itself.
 Build the zip from a commit, never from a working tree:
 
 ```
-node scripts/package-store.mjs --ref v0.5.0
+git fetch origin
+node scripts/package-store.mjs --ref origin/main
 ```
+
+Build from `main`, not from the `v0.5.0` tag. Both hold the same 0.5.0 code,
+but the tag predates the store icon: its `icons/icon-128.png` fills the whole
+128x128 square, where `main`'s has the 16 px padding the store asks for.
 
 It writes `build/x-slop-hide-<version>-chrome-web-store.zip` and refuses a
 manifest with a `key`, a name over 75 or a description over 132 characters, a
