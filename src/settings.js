@@ -12,12 +12,25 @@
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
   const LABELS = { show: 'Show', hide: 'Hide here', mute: 'Mute on X' };
   const botName = (h) => (L.BOTS.find((b) => b.handle === h) || { name: h }).name;
-  // Handles in a preview line: the first few by name, then a count.
+  // Handles in a preview line: the first few by name, then a count. A line
+  // with more than that also lists every handle under Show all, so a long
+  // shared list can be read in full before it is imported.
   const NAMED = 12;
   function names(hs) {
     const shown = hs.slice(0, NAMED).map((h) => `@${h}`);
     const more = hs.length - shown.length;
     return more > 0 ? `${shown.join(', ')} and ${more} more` : shown.join(', ');
+  }
+  function fill(el, text, hs) {
+    el.textContent = text;
+    if (!hs || hs.length <= NAMED) return;
+    const all = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.textContent = `Show all ${plural(hs.length, 'account', 'accounts')}`;
+    const list = document.createElement('p');
+    list.textContent = hs.map((h) => `@${h}`).join(', ');
+    all.append(summary, list);
+    el.append(all);
   }
 
   async function current() {
@@ -93,9 +106,9 @@
     $('file').value = '';
   }
 
-  function line(text) {
+  function line(text, hs) {
     const li = document.createElement('li');
-    li.textContent = text;
+    fill(li, text, hs);
     $('changes').append(li);
   }
 
@@ -107,9 +120,10 @@
       return note($('msg'), 'Nothing to import: your settings already have everything in this file.');
     }
     const p = plan;
-    if (p.addShow.length) line(`Always show gains ${plural(p.addShow.length, 'account', 'accounts')}: ${names(p.addShow)}.`);
-    if (p.addHide.length) line(`Also hide gains ${plural(p.addHide.length, 'account', 'accounts')}: ${names(p.addHide)}.`);
-    if (p.staysShown.length) line(`${names(p.staysShown)} will stay shown, because Always show has ${p.staysShown.length === 1 ? 'it' : 'them'}.`);
+    if (p.addShow.length) line(`Always show gains ${plural(p.addShow.length, 'account', 'accounts')}: ${names(p.addShow)}.`, p.addShow);
+    if (p.addHide.length) line(`Also hide gains ${plural(p.addHide.length, 'account', 'accounts')}: ${names(p.addHide)}.`, p.addHide);
+    if (p.staysShown.length)
+      line(`${names(p.staysShown)} will stay shown, because Always show has ${p.staysShown.length === 1 ? 'it' : 'them'}.`, p.staysShown);
     for (const c of p.botChanges) line(`@${botName(c.handle)}: ${c.from ? LABELS[c.from] : 'follows the list'} → ${LABELS[c.to]}.`);
     if (p.mentions !== null) line(`${p.mentions ? 'Turns on' : 'Turns off'} hiding posts that tag a bot set to Hide here or Mute on X.`);
 
@@ -118,12 +132,16 @@
     const mute = $('muteNote');
     mute.hidden = !t.length;
     mute.className = p.muting ? 'warn' : 'hint';
-    mute.textContent = !t.length
-      ? ''
-      : p.muting
-        ? `Muting is on as @${p.muteAccount}. After this import it can also mute ${plural(t.length, 'more account', 'more accounts')}: ` +
-          `${names(t)}.${bots} It mutes up to ${p.muteCap} a day, skips accounts you follow, and never unmutes.`
-        : `Muting is off. If you turn it on, it can also mute ${plural(t.length, 'account', 'accounts')} from this file: ${names(t)}.${bots}`;
+    fill(
+      mute,
+      !t.length
+        ? ''
+        : p.muting
+          ? `Muting is on as @${p.muteAccount}. After this import it can also mute ${plural(t.length, 'more account', 'more accounts')}: ` +
+            `${names(t)}.${bots} It mutes up to ${p.muteCap} a day, skips accounts you follow, and never unmutes.`
+          : `Muting is off. If you turn it on, it can also mute ${plural(t.length, 'account', 'accounts')} from this file: ${names(t)}.${bots}`,
+      t,
+    );
     $('stale').hidden = !stale;
     $('preview').hidden = false;
   }
@@ -157,24 +175,34 @@
     showPlan(plan, false);
   });
 
+  // One Confirm at a time. Cancel, or another file picked, while it reads
+  // settings stops it before it writes.
+  let confirming = false;
   $('confirm').addEventListener('click', async () => {
-    if (!pending) return;
-    const { settings, handles } = await current();
-    const plan = L.importPlan(settings, pending.file, handles);
-    const key = JSON.stringify(plan);
-    if (key !== pending.key) {
-      pending.key = key;
-      return showPlan(plan, true);
+    const was = pending;
+    if (!was || confirming) return;
+    confirming = true;
+    try {
+      const { settings, handles } = await current();
+      if (pending !== was) return;
+      const plan = L.importPlan(settings, was.file, handles);
+      const key = JSON.stringify(plan);
+      if (key !== was.key) {
+        was.key = key;
+        return showPlan(plan, true);
+      }
+      await chrome.storage.local.set({ [K.settings]: Object.assign({}, settings, plan.patch) });
+      const done = [];
+      if (plan.addShow.length) done.push(`Always show gained ${plan.addShow.length}`);
+      if (plan.addHide.length) done.push(`Also hide gained ${plan.addHide.length}`);
+      if (plan.botChanges.length) done.push(plural(plan.botChanges.length, 'bot choice changed', 'bot choices changed'));
+      if (plan.mentions !== null) done.push(`tag hiding turned ${plan.mentions ? 'on' : 'off'}`);
+      reset();
+      note($('msg'), `Imported: ${done.join(', ')}.`);
+      render();
+    } finally {
+      confirming = false;
     }
-    await chrome.storage.local.set({ [K.settings]: Object.assign({}, settings, plan.patch) });
-    const done = [];
-    if (plan.addShow.length) done.push(`Always show gained ${plan.addShow.length}`);
-    if (plan.addHide.length) done.push(`Also hide gained ${plan.addHide.length}`);
-    if (plan.botChanges.length) done.push(plural(plan.botChanges.length, 'bot choice changed', 'bot choices changed'));
-    if (plan.mentions !== null) done.push(`tag hiding turned ${plan.mentions ? 'on' : 'off'}`);
-    reset();
-    note($('msg'), `Imported: ${done.join(', ')}.`);
-    render();
   });
 
   $('cancel').addEventListener('click', () => {

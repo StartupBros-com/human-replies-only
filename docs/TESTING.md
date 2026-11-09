@@ -210,7 +210,7 @@ On 2026-11-09, version 0.6.0's export and import page ran in Chromium 156
 downloads and the page's own file input. The real list (772 handles)
 downloaded, and x.com was made unresolvable. The profile started with one
 account in each box, @grok set to Hide here, and muting on at 50 a day as a
-made-up account, with no x.com tab open. All 42 checks passed:
+made-up account, with no x.com tab open. All 47 checks passed:
 
 - **Export settings** saved `x-slop-hide-settings-2026-11-09.json` with exactly
   its seven keys. The file held no muting setting, muting handle, list address,
@@ -224,6 +224,10 @@ made-up account, with no x.com tab open. All 42 checks passed:
   account, a list address, pause and labels changed only Also hide, one bot
   choice and the tag setting. The other six stayed as they were, and the
   preview named @AskPerplexity, set to Mute on X, among the new mute targets.
+- A shared list of 30 new handles named the first 12, then "and 18 more", in
+  the Also hide line and in the muting note, each with **Show all 30
+  accounts** under it. The muting note's fold started closed and opened to all
+  30; **Cancel** then stored nothing.
 - **Cancel**, and a list whose second line had a note after the handle
   ("Not imported: line 2 is not an X handle."), stored nothing.
 - With the settings changed after the preview, the first click on **Import

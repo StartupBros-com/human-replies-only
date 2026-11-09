@@ -1575,6 +1575,69 @@ test('settings page: a bot set to Mute on X is named in the muting note', async 
   );
 });
 
+// A shared list can hold hundreds of handles. Each preview line names the
+// first 12, and every one of them is under Show all, muting note included.
+test('settings page: a line with more than 12 accounts lists all of them under Show all', async () => {
+  const hs = Array.from({ length: 14 }, (_, i) => `spam_${String(i).padStart(2, '0')}`);
+  const at = (xs) => xs.map((h) => `@${h}`).join(', ');
+  const p = loadSettings({ 'xsh:list': LIST, 'xsh:settings': { muteEnabled: true, muteAccount: 'me_here' } });
+  await settle();
+  p.pickFile('shared.txt', `${hs.join('\n')}\n`);
+  await settle();
+  const li = p.document.querySelectorAll('#changes li');
+  assert.equal(li.length, 1);
+  assert.equal(li[0].firstChild.textContent, `Also hide gains 14 accounts: ${at(hs.slice(0, 12))} and 2 more.`);
+  assert.equal(li[0].querySelector('details summary').textContent, 'Show all 14 accounts');
+  assert.equal(li[0].querySelector('details p').textContent, at(hs));
+  const mute = p.$('muteNote');
+  assert.equal(
+    mute.firstChild.textContent,
+    `Muting is on as @me_here. After this import it can also mute 14 more accounts: ${at(hs.slice(0, 12))} and 2 more. ` +
+      'It mutes up to 25 a day, skips accounts you follow, and never unmutes.',
+  );
+  assert.equal(mute.querySelector('details summary').textContent, 'Show all 14 accounts');
+  assert.equal(mute.querySelector('details p').textContent, at(hs));
+
+  const twelve = loadSettings({ 'xsh:settings': { muteEnabled: true, muteAccount: 'me_here' } });
+  await settle();
+  twelve.pickFile('shared.txt', `${hs.slice(0, 12).join('\n')}\n`);
+  await settle();
+  assert.deepEqual(twelve.changes(), [`Also hide gains 12 accounts: ${at(hs.slice(0, 12))}.`]);
+  assert.equal(twelve.document.querySelectorAll('#preview details').length, 0, 'no Show all at 12');
+});
+
+test('settings page: a second click on Confirm writes once', async () => {
+  const p = loadSettings({ 'xsh:settings': { extraList: 'spam_a' } });
+  let writes = 0;
+  const set = p.chrome.storage.local.set;
+  p.chrome.storage.local.set = async (o) => {
+    writes += 1;
+    return set(o);
+  };
+  await settle();
+  p.pickFile('shared.txt', 'spam_b\n');
+  await settle();
+  p.click('confirm');
+  p.click('confirm');
+  await settle();
+  assert.equal(writes, 1);
+  assert.equal(p.chrome.store['xsh:settings'].extraList, 'spam_a\nspam_b');
+  assert.equal(p.$('msg').textContent, 'Imported: Also hide gained 1.');
+});
+
+test('settings page: Cancel while Confirm reads settings stops the write', async () => {
+  const settings = { extraList: 'spam_a' };
+  const p = loadSettings({ 'xsh:settings': settings });
+  await settle();
+  p.pickFile('shared.txt', 'spam_b\n');
+  await settle();
+  p.click('confirm');
+  p.click('cancel');
+  await settle();
+  assert.deepEqual(p.chrome.store['xsh:settings'], settings);
+  assert.equal(p.$('msg').textContent, 'Nothing imported.');
+});
+
 test('settings page: a file with nothing new says so and offers no Confirm', async () => {
   const p = loadSettings({ 'xsh:settings': { extraList: 'spam_a' } });
   await settle();

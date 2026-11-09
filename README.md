@@ -423,10 +423,12 @@ changes **Mutes a day**.
 Before anything changes, the page lists what the file adds and changes. While
 muting is on, it says which account muting runs as and names the accounts
 muting can newly reach, bots set to **Mute on X** included. While muting is
-off, it names the accounts muting would add if you turned it on. Nothing is
-written until you click **Import these changes**, and **Cancel** writes
-nothing. If your settings change between the preview and the click (in the
-popup, say), the page shows the new preview instead of importing.
+off, it names the accounts muting would add if you turned it on. A line with
+more than 12 accounts names the first 12 and lists every one under **Show
+all**. Nothing is written until you click **Import these changes**, and
+**Cancel** writes nothing. If your settings change between the preview and the
+click (in the popup, say), the page shows the new preview instead of
+importing.
 
 A file is refused whole, with the reason, when a line is not a handle, a bot
 choice is not show, hide or mute, its format or version is unknown, or it
