@@ -151,7 +151,7 @@ hid none, the count is of those posts, with "Each one tags a bot. K on screen
 now." On a tab it cannot count, another site
 or an x.com tab opened before the extension was installed or reloaded, it says
 "Open x.com in this tab to see what was hidden. If it is already open, reload
-the tab." While hiding is paused, it says "Hiding is paused" on every tab. The
+the tab." While hiding is paused, an x.com tab says "Hiding is paused". The
 userscript has no counter.
 
 ## What gets hidden

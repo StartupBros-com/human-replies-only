@@ -891,7 +891,8 @@ test('popup: the X rules warning is shown in full, outside every fold, beside th
     const w = p.document.getElementById('muteWarn');
     assert.ok(w, `${name}: the warning is there`);
     assert.equal(w.textContent.replace(/\s+/g, ' ').trim(), WARNING, `${name}: every word of it`);
-    assert.equal(w.closest('details'), null, `${name}: not inside a fold`);
+    // A boolean, not the element: a failed assert carrying a DOM node hangs the runner.
+    assert.equal(Boolean(w.closest('details')), false, `${name}: not inside a fold`);
     assert.ok(shownInDom(w), `${name}: nothing hides it`);
     assert.ok(shownInDom(p.document.getElementById('mute')), `${name}: the switch shows`);
     assert.equal(p.document.getElementById('mute').getAttribute('aria-describedby'), 'muteWarn', `${name}: read out with the switch`);
@@ -956,10 +957,13 @@ test('popup: the tab line leads with the count, says when hiding is paused, and 
   p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} }, {}, tab({ hiddenPosts: 0, hiddenAuthors: [], hiddenNow: 1, hiddenMentions: 1 }));
   await settle();
   assert.deepEqual(read(p), { tab: '1 post hidden on this tab', more: 'It tags a bot. 1 on screen now.' });
-  // Pause is one setting for every tab, so even a tab without x.com says so.
-  p = loadPopup({ 'xsh:list': list, 'xsh:settings': { paused: true } });
+  // An x.com tab reports pause; another tab still points at x.com, as in 0.6.1.
+  p = loadPopup({ 'xsh:list': list, 'xsh:settings': { paused: true } }, {}, tab({ paused: true }));
   await settle();
   assert.deepEqual(read(p), { tab: 'Hiding is paused', more: 'Turn off Pause hiding to hide posts again.' });
+  p = loadPopup({ 'xsh:list': list, 'xsh:settings': { paused: true } });
+  await settle();
+  assert.deepEqual(read(p), { tab: 'Open x.com in this tab to see what was hidden.', more: 'If it is already open, reload the tab.' });
   p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} });
   await settle();
   // No answer from the tab: another site, or an x.com tab opened before install.

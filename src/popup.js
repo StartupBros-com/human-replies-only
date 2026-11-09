@@ -139,8 +139,6 @@
     renderBots(s, rec.handles);
     $('mentions').checked = s.hideBotMentions === true;
 
-    // Pause is one setting for every tab, so it reads the same on any tab.
-    if (s.paused) return renderTab('Hiding is paused', 'Turn off Pause hiding to hide posts again.');
     let st = null;
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab && tab.id != null) {
