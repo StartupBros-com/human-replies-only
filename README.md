@@ -679,7 +679,8 @@ what has not been tested.
 ## Contributing
 
 Issues and pull requests are welcome. For anything non-trivial, open an issue
-first so we can agree on the approach before you spend time on it.
+first so we can agree on the approach before you spend time on it. Report a
+security problem privately instead; [SECURITY.md](SECURITY.md) says how.
 
 ## License
 
