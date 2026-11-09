@@ -139,7 +139,7 @@ test("the user's own tabs get no job and no click, even with muting on", async (
   for (let i = 0; i < 10; i++) await tick();
   await new Promise((r) => setTimeout(r, 600));
   assert.deepEqual(clicks, []);
-  assert.equal(t.document.querySelector('[role="menu"]'), null);
+  assert.equal(t.document.querySelector('[role="menu"]') === null, true, 'compared as a boolean: printing a node hangs the run');
 });
 
 test('a listed post seen while browsing is sent once as a sighting, only while muting is on', async () => {

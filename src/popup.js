@@ -13,6 +13,21 @@
     return h < 48 ? `${h} h ago` : `${Math.round(h / 24)} days ago`;
   }
 
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+  // The daily number, and why none goes past the top one: hiding already
+  // covers this browser, so muting only adds the X apps.
+  function renderCap(s, m, handles) {
+    const cap = L.muteCap(s);
+    const sel = $('muteCap');
+    if (document.activeElement !== sel) setChoice(sel, String(cap));
+    const top = Math.max(...L.DEFAULTS.muteCaps);
+    const left = L.muteCandidates(handles, s, m).length;
+    $('capWhy').textContent =
+      `No setting goes above ${top}: hiding already covers this browser, and muting only adds the X apps.` +
+      (left ? ` At ${top} a day, muting the ${plural(left, 'account', 'accounts')} left takes ${plural(Math.ceil(left / top), 'day', 'days')}.` : '');
+  }
+
   // Off: only the hint to fill Always show first. On: who it mutes as,
   // today's mutes as a bar and in words, and the totals so far.
   function renderMuting(s, m) {
@@ -25,14 +40,13 @@
       return;
     }
     const now = Date.now();
-    const cap = L.DEFAULTS.muteDailyCap;
-    const b = L.muteBudget(m, L.utcDay(now));
+    const b = L.muteBudget(m, L.utcDay(now), L.muteCap(s));
     const t = L.muteSummary(m);
     const next = m.nextAt && m.nextAt > now ? ` · next visit in ${Math.ceil((m.nextAt - now) / 60000)} min` : '';
     $('muteWho').textContent = `Muting as @${s.muteAccount}`;
-    $('muteBar').setAttribute('max', String(cap));
-    $('muteBar').setAttribute('value', String(Math.min(b.mutes, cap)));
-    $('muteToday').textContent = `Today (UTC): ${b.mutes} of ${cap} mutes, ${b.visits} of ${L.DEFAULTS.muteVisitCap} visits${next}`;
+    $('muteBar').setAttribute('max', String(b.cap));
+    $('muteBar').setAttribute('value', String(Math.min(b.mutes, b.cap)));
+    $('muteToday').textContent = `Today (UTC): ${b.mutes} of ${b.cap} mutes, ${b.visits} of ${b.visitCap} visits${next}`;
     $('muteTotals').textContent =
       `So far: ${t.muted} muted (${t.confirmed} seen on your muted list, ${t.notFound} not found there), ` +
       `${t.already} already muted, ${t.followed} you follow, ${t.skipped} skipped.`;
@@ -40,11 +54,31 @@
     $('muteStop').textContent = b.stopped ? `Stopped for today: ${b.stopped}` : '';
   }
 
+  // Labels: on or off, how many are saved, export and a two-click delete.
+  let deleteArmed = false;
+  function renderLabels(s, n) {
+    if (n === 0) deleteArmed = false;
+    $('labeling').checked = s.labeling === true;
+    $('labelsSum').textContent = `${s.labeling === true ? 'On' : 'Off'} · ${n} saved`;
+    $('export').textContent = `Export labels (${n})`;
+    $('export').disabled = n === 0;
+    $('deleteLabels').disabled = n === 0;
+    $('deleteLabels').textContent = deleteArmed ? `Click again to delete ${plural(n, 'label', 'labels')}` : 'Delete all labels';
+  }
+  function labelsNote(text) {
+    $('labelsMsg').hidden = !text;
+    $('labelsMsg').textContent = text || '';
+  }
+
   async function render() {
-    const o = await chrome.storage.local.get([K.list, K.settings, K.mutes]);
+    const o = await chrome.storage.local.get([K.list, K.settings, K.mutes, K.labelCount]);
     const rec = o[K.list] || { handles: [] };
     const s = o[K.settings] || {};
-    renderMuting(s, o[K.mutes] || L.emptyMutes());
+    const m = o[K.mutes] || L.emptyMutes();
+    renderMuting(s, m);
+    renderCap(s, m, rec.handles);
+    const n = o[K.labelCount];
+    renderLabels(s, Number.isInteger(n) && n > 0 ? n : 0);
     let host = '';
     try {
       host = new URL(rec.source || L.DEFAULTS.feedUrl).host;
@@ -179,6 +213,45 @@
     render();
   });
 
+  $('muteCap').addEventListener('change', () => {
+    const v = Number(choiceOf($('muteCap')));
+    if (!L.DEFAULTS.muteCaps.includes(v)) return;
+    saveSettings({ muteCap: v }).then(render);
+  });
+  $('labeling').addEventListener('change', (e) => saveSettings({ labeling: e.target.checked }).then(render));
+  // A JSONL file of every saved label, built from the label keys themselves
+  // (the count is only a cache). The previous file's URL is freed first.
+  let exportUrl = null;
+  $('export').addEventListener('click', async () => {
+    const recs = L.labelsFrom(await chrome.storage.local.get(null));
+    if (!recs.length) return labelsNote('No labels saved yet.');
+    if (exportUrl) URL.revokeObjectURL(exportUrl);
+    exportUrl = URL.createObjectURL(new Blob([L.labelsJsonl(recs)], { type: 'application/x-ndjson' }));
+    const a = document.createElement('a');
+    a.setAttribute('href', exportUrl);
+    a.setAttribute('download', `x-slop-hide-labels-${L.utcDay(Date.now())}.jsonl`);
+    document.body.append(a);
+    a.click();
+    a.remove();
+    labelsNote(`Exported ${plural(recs.length, 'label', 'labels')}.`);
+  });
+  // The first click only arms the button; the second deletes. The worker
+  // deletes the labels; Also hide and Always show stay as they are.
+  $('deleteLabels').addEventListener('click', async () => {
+    if (!deleteArmed) {
+      deleteArmed = true;
+      return render();
+    }
+    deleteArmed = false;
+    let r = null;
+    try {
+      r = await chrome.runtime.sendMessage({ type: 'xsh:labels-clear' });
+    } catch (e) {
+      r = { ok: false, reason: String(e) };
+    }
+    labelsNote(r && r.ok ? `Deleted ${plural(r.removed, 'label', 'labels')}.` : `Not deleted: ${(r && r.reason) || 'no answer'}`);
+    render();
+  });
   $('paused').addEventListener('change', (e) => saveSettings({ paused: e.target.checked }).then(render));
   $('mentions').addEventListener('change', (e) => saveSettings({ hideBotMentions: e.target.checked }).then(render));
   // One write for both boxes, so neither can overwrite the other with a stale value.

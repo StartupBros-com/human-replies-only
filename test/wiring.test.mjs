@@ -20,6 +20,7 @@ function event() {
 function area(store, onChanged, name) {
   return {
     get: async (keys) => {
+      if (keys === null || keys === undefined) return structuredClone(store);
       const ks = Array.isArray(keys) ? keys : [keys];
       return Object.fromEntries(ks.filter((k) => k in store).map((k) => [k, structuredClone(store[k])]));
     },
@@ -28,26 +29,46 @@ function area(store, onChanged, name) {
       Object.assign(store, structuredClone(o));
       if (onChanged) onChanged.fire(changes, name);
     },
-    remove: async (k) => {
-      delete store[k];
+    remove: async (keys) => {
+      const ks = (Array.isArray(keys) ? keys : [keys]).filter((k) => k in store);
+      const changes = Object.fromEntries(ks.map((k) => [k, { oldValue: structuredClone(store[k]) }]));
+      for (const k of ks) delete store[k];
+      if (onChanged && ks.length) onChanged.fire(changes, name);
     },
   };
 }
+
+const EXT_ID = 'xshtestextensionid';
 
 function fakeChrome() {
   const store = {};
   const session = {};
   const alarmTable = {};
   const onChanged = event();
-  const tabs = { opened: [], removed: [], nextId: 100, onRemoved: event() };
+  // `list` holds the user's own tabs: tabs.query returns them and every tab
+  // opened for a job that is still open, without URLs (there is no "tabs"
+  // permission). `answer(id, msg)` is a tab's reply to tabs.sendMessage; by
+  // default no content script is there. A tab in `failRemove` will not close.
+  const tabs = { opened: [], removed: [], nextId: 100, onRemoved: event(), list: [], queries: 0, asked: [], failRemove: new Set() };
+  tabs.answer = () => Promise.reject(new Error('Could not establish connection. Receiving end does not exist.'));
   tabs.create = async (info) => {
     const tab = { id: tabs.nextId++, ...info };
     tabs.opened.push(tab);
     return tab;
   };
   tabs.remove = async (id) => {
+    if (tabs.failRemove.has(id)) throw new Error(`No tab with id: ${id}.`);
     tabs.removed.push(id);
     tabs.onRemoved.fire(id, {});
+  };
+  tabs.query = async () => {
+    tabs.queries += 1;
+    const jobTabs = tabs.opened.filter((t) => !tabs.removed.includes(t.id)).map((t) => ({ id: t.id }));
+    return structuredClone([...tabs.list, ...jobTabs]);
+  };
+  tabs.sendMessage = async (id, msg) => {
+    tabs.asked.push(id);
+    return tabs.answer(id, msg);
   };
   return {
     store,
@@ -66,7 +87,13 @@ function fakeChrome() {
       },
       onAlarm: event(),
     },
-    runtime: { onInstalled: event(), onStartup: event(), onMessage: event() },
+    runtime: {
+      id: EXT_ID,
+      getURL: (path) => `chrome-extension://${EXT_ID}/${path}`,
+      onInstalled: event(),
+      onStartup: event(),
+      onMessage: event(),
+    },
   };
 }
 
@@ -77,7 +104,7 @@ function loadBackground(responder) {
     requests.push({ url, init });
     return responder(url);
   };
-  const ctx = vm.createContext({ chrome, fetch, AbortSignal, console });
+  const ctx = vm.createContext({ chrome, fetch, AbortSignal, console, setTimeout, clearTimeout, URL });
   ctx.self = ctx;
   ctx.importScripts = (p) => {
     assert.equal(p, 'lib.js');
@@ -519,6 +546,7 @@ function loadUserscript({
   values = {},
   respond,
   cells = [post({ author: 'known_slop', status: '1' }), post({ author: 'realhuman', status: '2' })],
+  pathname = '/home',
 }) {
   const { window, document, MutationObserver } = parseHTML(page(cells));
   const requests = [];
@@ -529,7 +557,7 @@ function loadUserscript({
     window,
     document,
     MutationObserver,
-    location: { pathname: '/home' },
+    location: { pathname },
     console,
     prompt: (q, d) => answer(q, d),
     setInterval: (fn, ms) => intervals.push({ fn, ms }),
@@ -640,13 +668,14 @@ test('userscript: the bot, extra-accounts and tag menus save what the popup save
 });
 
 // Run the real popup.js against popup.html with an in-memory chrome.storage.
-function loadPopup(store) {
+// `globals` adds to or replaces what the page sees (URL, Blob).
+function loadPopup(store, globals = {}) {
   const { window, document } = parseHTML(src('src/popup.html'));
   const chrome = fakeChrome();
   Object.assign(chrome.store, structuredClone(store));
   chrome.tabs = { query: async () => [], sendMessage: async () => null };
   chrome.runtime.sendMessage = async () => ({ ok: true });
-  const ctx = vm.createContext({ window, document, chrome, console, URL });
+  const ctx = vm.createContext({ window, document, chrome, console, URL, ...globals });
   vm.runInContext(src('src/lib.js'), ctx, { filename: 'src/lib.js' });
   vm.runInContext(src('src/popup.js'), ctx, { filename: 'src/popup.js' });
   return { window, document, chrome };
@@ -914,4 +943,417 @@ test('userscript: a failed refresh is retried after the retry gap, not on every 
 
 test('userscript: committed dist file matches the sources', () => {
   assert.equal(src('dist/x-slop-hide.user.js'), buildUserscript());
+});
+
+// ------------------------------------------------------------ daily number
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const muteAt = (muteCap, over = {}) => muteBackground({ settings: { muteEnabled: true, muteAccount: ME, muteCap }, ...over });
+
+test('background: at 25 a day muting never looks for an x.com tab, and a stored number other than 25, 50 or 100 reads as 25', async () => {
+  for (const muteCap of [25, undefined, 1000, '100', 0, -1]) {
+    const bg = await muteAt(muteCap);
+    await alarm(bg);
+    assert.equal(bg.chrome.tabs.opened.length, 1, `${muteCap}: visits with no x.com tab open`);
+    assert.equal(bg.chrome.tabs.queries, 0, `${muteCap}: never asks the tabs`);
+  }
+  // 25 mutes done today: a stored 1000 stops there, as 25 does.
+  const bg = await muteAt(1000, { mutes: { ...lib.emptyMutes(), days: { [today()]: { mutes: 25, visits: 25 } } } });
+  await alarm(bg);
+  assert.deepEqual(bg.chrome.tabs.opened, []);
+});
+
+test("background: at 50 or 100 a day, a mute visit waits for an x.com tab of the user's own, and only a true answer counts", async () => {
+  for (const cap of [50, 100]) {
+    const bg = await muteAt(cap, { mutes: { ...lib.emptyMutes(), days: { [today()]: { mutes: 30, visits: 40 } } } });
+    const t = bg.chrome.tabs;
+    await alarm(bg);
+    assert.deepEqual(t.opened, [], `${cap}: no tab of the user's own, no visit`);
+    assert.equal(t.queries, 1);
+    t.list = [{ id: 7 }, { id: 8 }];
+    for (const reply of ['true', 1, { present: true }, null, false]) {
+      t.answer = (id) => (id === 7 ? reply : Promise.reject(new Error('no content script')));
+      await alarm(bg);
+      assert.deepEqual(t.opened, [], `${cap}: a reply of ${JSON.stringify(reply)} is not a yes`);
+    }
+    t.answer = (id) => (id === 8 ? true : Promise.reject(new Error('no content script')));
+    t.asked.length = 0;
+    await alarm(bg);
+    assert.equal(t.opened.length, 1, `${cap}: one tab says yes, so the visit goes ahead past 25 today`);
+    assert.equal(lastTab(bg).url, 'https://x.com/slop_a');
+    assert.deepEqual([...t.asked].sort(), [7, 8], 'both tabs were asked');
+    assert.equal(bg.chrome.store['xsh:mutes'].days[today()].visits, 41);
+  }
+  // At today's cap there is nothing to ask about.
+  const full = await muteAt(50, { mutes: { ...lib.emptyMutes(), days: { [today()]: { mutes: 50, visits: 60 } } } });
+  full.chrome.tabs.list = [{ id: 7 }];
+  full.chrome.tabs.answer = () => true;
+  await alarm(full);
+  assert.equal(full.chrome.tabs.queries, 0);
+  assert.deepEqual(full.chrome.tabs.opened, []);
+});
+
+test('background: the x.com check never counts a job tab, even one that failed to close, skips discarded tabs, and waits 1.5 s for an answer', async () => {
+  const bg = await muteAt(50);
+  const t = bg.chrome.tabs;
+  // Every tab says yes, as a job tab whose page reloaded after its job would.
+  t.list = [{ id: 7 }];
+  t.answer = () => true;
+  t.failRemove.add(100);
+  await alarm(bg);
+  assert.equal(lastTab(bg).id, 100);
+  assert.deepEqual(bg.chrome.session['xsh:jobTabs'], [100]);
+  const job = await send(bg, { type: 'xsh:job' }, 100);
+  await send(bg, { type: 'xsh:job-result', result: { id: job.id, status: 'already' } }, 100);
+  assert.deepEqual(t.removed, [], 'the close failed');
+  assert.deepEqual(bg.chrome.session['xsh:jobTabs'], [100], 'so the tab stays on the job-tab list');
+  // The user's tab is gone; a discarded one is left, and job tab 100 is still open.
+  t.list = [{ id: 8, discarded: true }];
+  t.asked.length = 0;
+  due(bg);
+  await alarm(bg);
+  assert.equal(t.opened.length, 1, 'no visit');
+  assert.deepEqual(t.asked, [], 'neither the job tab nor the discarded tab is asked');
+  // A tab that answers after 2 s is past the wait.
+  t.list = [{ id: 9 }];
+  t.answer = (id) => (id === 9 ? sleep(2000).then(() => true) : true);
+  bg.chrome.alarms.onAlarm.fire({ name: 'xsh-mute' });
+  await sleep(1700);
+  await settle();
+  assert.equal(t.opened.length, 1, 'no answer within 1.5 s counts as no');
+  // One that answers after 0.8 s is in time.
+  t.answer = (id) => (id === 9 ? sleep(800).then(() => true) : true);
+  bg.chrome.alarms.onAlarm.fire({ name: 'xsh-mute' });
+  await sleep(1000);
+  await settle();
+  assert.equal(t.opened.length, 2);
+  assert.equal(lastTab(bg).url, 'https://x.com/slop_b');
+  assert.deepEqual(t.asked, [9, 9], 'only tab 9 was ever asked');
+  assert.deepEqual(bg.chrome.session['xsh:jobTabs'], [100, 101]);
+});
+
+test('background: at 50 a day with no x.com tab open, a pending check of the muted list still runs', async () => {
+  const bg = await muteAt(50, { mutes: { ...lib.emptyMutes(), handles: { slop_a: { status: 'muted', confirmed: null } }, sinceCheck: ['slop_a'] } });
+  await alarm(bg);
+  assert.equal(bg.chrome.tabs.queries, 1);
+  assert.equal(bg.chrome.tabs.opened.length, 1);
+  assert.equal(lastTab(bg).url, 'https://x.com/settings/muted/all');
+});
+
+// ------------------------------------------------------------ labels
+
+const LABEL_MSG = { type: 'xsh:label', label: 'slop', handle: '@Reply_A', url: '/reply_a/status/2', page: '/op/status/1', text: 'hello' };
+const labelKeys = (bg) => Object.keys(bg.chrome.store).filter((k) => k.startsWith('xsh:label:')).sort();
+const reply = async (p) => ({ ...(await p) });
+
+function labelBackground({ settings = { labeling: true }, handles = [], source = 's', store = {} } = {}) {
+  const bg = loadBackground(() => ok(handles.join('\n')));
+  bg.chrome.store['xsh:list'] = { handles, fetchedAt: Date.now(), source };
+  bg.chrome.store['xsh:settings'] = settings;
+  Object.assign(bg.chrome.store, store);
+  return bg;
+}
+
+// A message from the popup. Chrome gives it the popup's own address and,
+// unless the popup was opened in a tab, no sender.tab.
+const POPUP_URL = `chrome-extension://${EXT_ID}/src/popup.html`;
+function fromPopup(bg, msg, sender = { id: EXT_ID, url: POPUP_URL }) {
+  return new Promise((resolve) => {
+    const keep = bg.chrome.runtime.onMessage.fire(msg, sender, resolve);
+    if (!keep.includes(true)) resolve(undefined);
+  });
+}
+
+test('background: a label is refused while labelling is off, and nothing is written', async () => {
+  for (const settings of [{}, { labeling: 'true' }, { labeling: false }]) {
+    const bg = labelBackground({ settings });
+    const before = structuredClone(bg.chrome.store);
+    assert.deepEqual(await reply(send(bg, LABEL_MSG, 7)), { ok: false, reason: 'labels are off' });
+    assert.deepEqual(bg.chrome.store, before);
+  }
+});
+
+test('background: Slop saves the record and adds the account to Also hide once; Not slop adds it to Always show; clearing changes neither box', async () => {
+  const bg = labelBackground({ settings: { labeling: true, allowlist: 'friend' } });
+  const before = Date.now();
+  assert.deepEqual(await reply(send(bg, LABEL_MSG, 7)), { ok: true, label: 'slop', added: 'extraList' });
+  const rec = bg.chrome.store['xsh:label:2'];
+  assert.ok(rec.at >= before && rec.at <= Date.now());
+  assert.deepEqual(
+    { ...rec, at: 0 },
+    {
+      at: 0,
+      label: 'slop',
+      handle: 'reply_a',
+      url: 'https://x.com/reply_a/status/2',
+      text: 'hello',
+      page: 'https://x.com/op/status/1',
+      list: null,
+      extra: false,
+      allow: false,
+      hidden: false,
+    },
+  );
+  assert.equal(bg.chrome.store['xsh:labelCount'], 1);
+  assert.deepEqual(bg.chrome.store['xsh:settings'], { labeling: true, allowlist: 'friend', extraList: 'reply_a' });
+  // The same label from another tab adds and counts nothing more.
+  assert.deepEqual(await reply(send(bg, LABEL_MSG, 8)), { ok: true, label: 'slop', added: null });
+  assert.equal(bg.chrome.store['xsh:labelCount'], 1);
+  assert.equal(bg.chrome.store['xsh:settings'].extraList, 'reply_a');
+  // Not slop: into Always show, and still in Also hide.
+  assert.deepEqual(await reply(send(bg, { ...LABEL_MSG, label: 'not_slop' }, 7)), { ok: true, label: 'not_slop', added: 'allowlist' });
+  assert.deepEqual(bg.chrome.store['xsh:settings'], { labeling: true, allowlist: 'friend\nreply_a', extraList: 'reply_a' });
+  const changed = bg.chrome.store['xsh:label:2'];
+  assert.deepEqual([changed.label, changed.extra, changed.allow, changed.hidden], ['not_slop', true, false, true], 'what the boxes held before this label');
+  assert.equal(bg.chrome.store['xsh:labelCount'], 1);
+  // Clearing deletes the record and leaves both boxes.
+  const settings = structuredClone(bg.chrome.store['xsh:settings']);
+  assert.deepEqual(await reply(send(bg, { ...LABEL_MSG, label: null }, 7)), { ok: true, label: null });
+  assert.deepEqual(labelKeys(bg), []);
+  assert.equal(bg.chrome.store['xsh:labelCount'], 0);
+  assert.deepEqual(bg.chrome.store['xsh:settings'], settings);
+  // Clearing a label that was never saved changes nothing.
+  assert.deepEqual(await reply(send(bg, { ...LABEL_MSG, label: null, url: '/reply_a/status/3' }, 7)), { ok: true, label: null });
+  assert.equal(bg.chrome.store['xsh:labelCount'], 0);
+});
+
+test('background: a label records which list had the account and whether its replies hide on that page, and keeps 1,000 characters of text', async () => {
+  const bg = labelBackground({ handles: ['slop_x'], source: 'https://clankwall.vogel.dev/api/usernames.txt' });
+  await send(bg, { ...LABEL_MSG, handle: 'slop_x', url: '/slop_x/status/5', text: '🚀'.repeat(1200) }, 7);
+  const r = bg.chrome.store['xsh:label:5'];
+  assert.deepEqual([r.list, r.extra, r.allow, r.hidden], ['clankwall.vogel.dev', false, false, true]);
+  assert.equal(Array.from(r.text).length, 1000);
+  // On the account's own post page its replies show.
+  await send(bg, { ...LABEL_MSG, handle: 'slop_x', url: '/slop_x/status/6', page: '/slop_x/status/4' }, 7);
+  assert.equal(bg.chrome.store['xsh:label:6'].hidden, false);
+  // A page that is not a post is recorded as none.
+  await send(bg, { ...LABEL_MSG, url: '/reply_a/status/7', page: '/home' }, 7);
+  assert.equal(bg.chrome.store['xsh:label:7'].page, null);
+});
+
+test("background: a label with a bad link, another account's handle or an unknown label is refused and writes nothing", async () => {
+  const bg = labelBackground();
+  const before = structuredClone(bg.chrome.store);
+  const cases = [
+    [{ url: '/reply_a' }, 'not a post URL'],
+    [{ url: 'https://evil.example/reply_a/status/2' }, 'not a post URL'],
+    [{ url: 42 }, 'not a post URL'],
+    [{ handle: 'reply_b' }, "not the post's author"],
+    [{ handle: 'not a handle!' }, 'not a handle'],
+    [{ label: 'maybe' }, 'unknown label'],
+    [{ label: undefined }, 'unknown label'],
+  ];
+  for (const [over, reason] of cases) {
+    assert.deepEqual(await reply(send(bg, { ...LABEL_MSG, ...over }, 7)), { ok: false, reason }, JSON.stringify(over));
+  }
+  assert.deepEqual(bg.chrome.store, before);
+});
+
+test('background: at 2,000 labels a new one is refused and a saved one can still change; a count that drifted is recounted', async () => {
+  const store = { 'xsh:labelCount': 2000 };
+  for (let i = 1; i <= 2000; i++) store[`xsh:label:${i}`] = { at: i, label: 'slop', handle: 'reply_a', url: `https://x.com/reply_a/status/${i}` };
+  const bg = labelBackground({ store });
+  assert.deepEqual(await reply(send(bg, { ...LABEL_MSG, url: '/reply_a/status/2001' }, 7)), {
+    ok: false,
+    reason: '2000 labels saved: export and delete them to add more',
+  });
+  assert.equal(bg.chrome.store['xsh:label:2001'], undefined);
+  assert.equal(bg.chrome.store['xsh:settings'].extraList, undefined, 'a refused label adds no one to a box');
+  assert.equal((await send(bg, { ...LABEL_MSG, label: 'not_slop', url: '/reply_a/status/5' }, 7)).ok, true);
+  assert.equal(bg.chrome.store['xsh:label:5'].label, 'not_slop');
+  assert.equal(bg.chrome.store['xsh:labelCount'], 2000);
+  // The count says 2,000 but only 3 are stored: the recount lets a new one in.
+  for (let i = 4; i <= 2000; i++) delete bg.chrome.store[`xsh:label:${i}`];
+  assert.equal((await send(bg, { ...LABEL_MSG, url: '/reply_a/status/2001' }, 7)).ok, true);
+  assert.equal(bg.chrome.store['xsh:labelCount'], 4);
+  assert.equal(labelKeys(bg).length, 4);
+});
+
+test('background: deleting every label works only from the popup and leaves Also hide and Always show as they are', async () => {
+  const settings = { labeling: true, extraList: 'slop_x', allowlist: 'friend' };
+  const store = { 'xsh:labelCount': 3, 'xsh:mutes': lib.emptyMutes() };
+  for (const i of [1, 2, 3]) store[`xsh:label:${i}`] = { at: i, label: 'slop', handle: 'slop_x', url: `https://x.com/slop_x/status/${i}` };
+  const bg = labelBackground({ settings, store });
+  assert.equal(await send(bg, { type: 'xsh:labels-clear' }, 7), undefined, 'a tab gets no answer');
+  const refused = [
+    { id: EXT_ID, tab: { id: 7 }, url: 'https://x.com/e2e_op/status/100' },
+    { id: EXT_ID, url: 'https://x.com/home' },
+    { id: EXT_ID, url: 'chrome-extension://another_extension/src/popup.html' },
+    { id: EXT_ID, url: `chrome-extension://${EXT_ID}.evil.example/` },
+    { id: EXT_ID },
+  ];
+  for (const sender of refused) {
+    assert.equal(await fromPopup(bg, { type: 'xsh:labels-clear' }, sender), undefined, `refused: ${JSON.stringify(sender)}`);
+  }
+  assert.equal(labelKeys(bg).length, 3);
+  assert.deepEqual(await reply(fromPopup(bg, { type: 'xsh:labels-clear' })), { ok: true, removed: 3 });
+  assert.deepEqual(labelKeys(bg), []);
+  assert.equal('xsh:labelCount' in bg.chrome.store, false);
+  assert.deepEqual(bg.chrome.store['xsh:settings'], settings);
+  assert.ok(bg.chrome.store['xsh:mutes'] && bg.chrome.store['xsh:list'], 'nothing else is deleted');
+});
+
+test('background: the popup opened in a tab of its own can still delete every label', async () => {
+  const store = { 'xsh:labelCount': 2 };
+  for (const i of [1, 2]) store[`xsh:label:${i}`] = { at: i, label: 'slop', handle: 'slop_x', url: `https://x.com/slop_x/status/${i}` };
+  const bg = labelBackground({ store });
+  const sender = { id: EXT_ID, tab: { id: 9 }, url: POPUP_URL };
+  assert.deepEqual(await reply(fromPopup(bg, { type: 'xsh:labels-clear' }, sender)), { ok: true, removed: 2 });
+  assert.deepEqual(labelKeys(bg), []);
+});
+
+// ------------------------------------------------------------ popup: number and labels
+
+const choice = (p, id) => [...p.document.getElementById(id).querySelectorAll('option')].find((o) => o.selected)?.value;
+function choose(p, id, value) {
+  const sel = p.document.getElementById(id);
+  const opts = [...sel.querySelectorAll('option')];
+  for (const o of opts) o.selected = false;
+  opts.find((o) => o.value === value).selected = true;
+  sel.dispatchEvent(new p.window.Event('change'));
+}
+
+test('popup: the daily number offers 25, 50 and 100, saves the one picked, and says why none goes higher', async () => {
+  const day = lib.utcDay(Date.now());
+  const p = loadPopup({
+    'xsh:list': { handles: many(250), fetchedAt: Date.now(), source: 's' },
+    'xsh:settings': { muteEnabled: true, muteAccount: 'startupbros', muteCap: 100 },
+    'xsh:mutes': { ...lib.emptyMutes(), handles: { h0: { status: 'muted', confirmed: true } }, days: { [day]: { mutes: 2, visits: 5 } } },
+  });
+  await settle();
+  const $ = (id) => p.document.getElementById(id);
+  assert.deepEqual([...p.document.querySelectorAll('#muteCap option')].map((o) => o.value), ['25', '50', '100']);
+  assert.equal(choice(p, 'muteCap'), '100');
+  assert.equal($('muteToday').textContent, 'Today (UTC): 2 of 100 mutes, 5 of 200 visits');
+  assert.equal($('muteBar').getAttribute('max'), '100');
+  assert.equal(
+    $('capWhy').textContent,
+    'No setting goes above 100: hiding already covers this browser, and muting only adds the X apps. At 100 a day, muting the 249 accounts left takes 3 days.',
+  );
+  choose(p, 'muteCap', '50');
+  await settle();
+  assert.deepEqual(p.chrome.store['xsh:settings'], { muteEnabled: true, muteAccount: 'startupbros', muteCap: 50 });
+  assert.equal(choice(p, 'muteCap'), '50');
+  assert.equal($('muteToday').textContent, 'Today (UTC): 2 of 50 mutes, 5 of 100 visits');
+  // A stored number that is not offered reads as 25; with nothing left to mute, one sentence.
+  const odd = loadPopup({
+    'xsh:list': { handles: [], fetchedAt: Date.now(), source: 's' },
+    'xsh:settings': { muteEnabled: true, muteAccount: 'startupbros', muteCap: 1000 },
+  });
+  await settle();
+  assert.equal(choice(odd, 'muteCap'), '25');
+  assert.equal(odd.document.getElementById('muteToday').textContent, 'Today (UTC): 0 of 25 mutes, 0 of 50 visits');
+  assert.equal(odd.document.getElementById('capWhy').textContent, 'No setting goes above 100: hiding already covers this browser, and muting only adds the X apps.');
+  assert.equal(odd.chrome.store['xsh:settings'].muteCap, 1000, 'rendering does not rewrite it');
+});
+
+test('popup: labels switch on and off, export as JSON lines oldest first, and delete only on a second click', async () => {
+  const recs = [3, 1, 2].map((at) => ({
+    at,
+    label: at === 2 ? 'not_slop' : 'slop',
+    handle: `h${at}`,
+    url: `https://x.com/h${at}/status/${at}`,
+    text: `reply ${at} 🚀`,
+  }));
+  const store = {
+    'xsh:list': { handles: [], fetchedAt: Date.now(), source: 's' },
+    'xsh:settings': { extraList: 'h1' },
+    'xsh:labelCount': 3,
+    'xsh:mutes': lib.emptyMutes(),
+  };
+  for (const r of recs) store[`xsh:label:${r.at}`] = r;
+  const made = [];
+  const revoked = [];
+  class TestURL extends URL {
+    static createObjectURL(blob) {
+      made.push(blob);
+      return `blob:test/${made.length}`;
+    }
+    static revokeObjectURL(u) {
+      revoked.push(u);
+    }
+  }
+  const p = loadPopup(store, { URL: TestURL, Blob });
+  const $ = (id) => p.document.getElementById(id);
+  const downloads = [];
+  p.document.addEventListener('click', (e) => {
+    if (e.target.tagName === 'A' && e.target.hasAttribute('download')) downloads.push({ href: e.target.getAttribute('href'), name: e.target.getAttribute('download') });
+  });
+  const sent = [];
+  p.chrome.runtime.sendMessage = async (m) => {
+    sent.push(structuredClone(m));
+    // What the worker does: delete the labels and the count.
+    for (const k of Object.keys(p.chrome.store)) if (k.startsWith('xsh:label:') || k === 'xsh:labelCount') delete p.chrome.store[k];
+    return { ok: true, removed: 3 };
+  };
+  await settle();
+  assert.equal($('labelsSum').textContent, 'Off · 3 saved');
+  assert.equal($('labeling').checked, false);
+  assert.equal($('export').textContent, 'Export labels (3)');
+  assert.equal($('export').disabled, false);
+  assert.equal($('deleteLabels').textContent, 'Delete all labels');
+  assert.equal($('labelsMsg').hidden, true);
+  $('labeling').checked = true;
+  $('labeling').dispatchEvent(new p.window.Event('change'));
+  await settle();
+  assert.deepEqual(p.chrome.store['xsh:settings'], { extraList: 'h1', labeling: true });
+  assert.equal($('labelsSum').textContent, 'On · 3 saved');
+  // Export.
+  $('export').dispatchEvent(new p.window.Event('click'));
+  await settle();
+  assert.equal(made.length, 1);
+  assert.equal(made[0].type, 'application/x-ndjson');
+  const oldestFirst = [...recs].sort((a, b) => a.at - b.at);
+  assert.equal(await made[0].text(), `${oldestFirst.map((r) => JSON.stringify(r)).join('\n')}\n`);
+  assert.deepEqual(downloads, [{ href: 'blob:test/1', name: `x-slop-hide-labels-${lib.utcDay(Date.now())}.jsonl` }]);
+  assert.equal(p.document.querySelectorAll('a[download]').length, 0, 'the link is removed after the click');
+  assert.equal($('labelsMsg').hidden, false);
+  assert.equal($('labelsMsg').textContent, 'Exported 3 labels.');
+  $('export').dispatchEvent(new p.window.Event('click'));
+  await settle();
+  assert.deepEqual(revoked, ['blob:test/1'], "a second export frees the first file's URL");
+  // Delete: the first click only arms the button.
+  $('deleteLabels').dispatchEvent(new p.window.Event('click'));
+  await settle();
+  assert.deepEqual(sent, []);
+  assert.equal($('deleteLabels').textContent, 'Click again to delete 3 labels');
+  $('deleteLabels').dispatchEvent(new p.window.Event('click'));
+  await settle();
+  assert.deepEqual(sent, [{ type: 'xsh:labels-clear' }]);
+  assert.equal($('labelsMsg').textContent, 'Deleted 3 labels.');
+  assert.equal($('labelsSum').textContent, 'On · 0 saved');
+  assert.equal($('export').disabled, true);
+  assert.equal($('deleteLabels').disabled, true);
+  assert.equal($('deleteLabels').textContent, 'Delete all labels');
+  assert.deepEqual(p.chrome.store['xsh:settings'], { extraList: 'h1', labeling: true }, 'the boxes stay');
+  // A count with no labels behind it exports nothing; a refused delete says why.
+  const q = loadPopup({ 'xsh:list': store['xsh:list'], 'xsh:settings': { labeling: true }, 'xsh:labelCount': 1 }, { URL: TestURL, Blob });
+  q.chrome.runtime.sendMessage = async () => ({ ok: false, reason: 'busy' });
+  await settle();
+  q.document.getElementById('export').dispatchEvent(new q.window.Event('click'));
+  await settle();
+  assert.equal(q.document.getElementById('labelsMsg').textContent, 'No labels saved yet.');
+  assert.equal(made.length, 2, 'no new file');
+  q.document.getElementById('deleteLabels').dispatchEvent(new q.window.Event('click'));
+  await settle();
+  assert.equal(q.document.getElementById('deleteLabels').textContent, 'Click again to delete 1 label');
+  q.document.getElementById('deleteLabels').dispatchEvent(new q.window.Event('click'));
+  await settle();
+  assert.equal(q.document.getElementById('labelsMsg').textContent, 'Not deleted: busy');
+  assert.equal(q.document.getElementById('deleteLabels').textContent, 'Delete all labels');
+});
+
+test('userscript: never shows label buttons, even with labelling saved as on', async () => {
+  const now = Date.now();
+  const values = {
+    'xsh:list': { handles: ['known_slop'], fetchedAt: now, lastAttemptAt: now, source: 's', lastError: null, seq: 1 },
+    'xsh:settings': { labeling: true },
+  };
+  const cells = [post({ author: 'op', status: '1' }), post({ author: 'reply_a', status: '2' }), post({ author: 'known_slop', status: '3' })];
+  const us = loadUserscript({ values, respond: gmOk('known_slop\n'), cells, pathname: '/op/status/1' });
+  await settle();
+  assert.ok(us.document.querySelector('[data-fixture="3"]').hasAttribute('data-xsh-hidden'), 'the userscript is running');
+  assert.equal(us.document.querySelectorAll('[data-xsh-bar]').length, 0);
+  assert.equal(us.document.getElementById('xsh-bar-style') === null, true, 'compared as a boolean: printing a node hangs the run');
+  assert.doesNotMatch(src('src/userscript-adapter.js'), /saveLabel|getLabels|subscribeLabels|answerPresent/);
 });

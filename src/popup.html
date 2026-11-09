@@ -78,6 +78,9 @@
   select:disabled { opacity: 0.55; }
   .check { display: flex; align-items: flex-start; gap: 7px; margin-top: 8px; cursor: pointer; }
   .check input { margin: 2px 0 0; flex: none; }
+  .caprow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); }
+  #muteCap { width: 72px; }
+  .btnrow { display: flex; gap: 8px; margin-top: 8px; }
 
   .field { display: block; font-size: 12px; margin: 4px 0 4px; }
   textarea { display: block; width: 100%; padding: 5px 7px; margin-bottom: 8px; font: 12px/1.35 ui-monospace, monospace; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); resize: vertical; }
@@ -117,11 +120,21 @@
     <p id="muteTotals" class="small muted"></p>
   </div>
   <p id="muteStop" class="bad" hidden></p>
-  <p class="warn">X's rules forbid "scripting the X website" and say: "The use of these techniques may result in the permanent suspension of your account." Muting scripts x.com.</p>
+  <div class="caprow">
+    <label for="muteCap">Mutes a day</label>
+    <select id="muteCap">
+      <option value="25">25</option>
+      <option value="50">50</option>
+      <option value="100">100</option>
+    </select>
+  </div>
+  <p class="hint">25 runs whenever the browser is open. 50 and 100 run only while you have x.com open in a tab.</p>
+  <p id="capWhy" class="hint"></p>
+  <p class="warn">X's rules forbid "scripting the X website" and say: "The use of these techniques may result in the permanent suspension of your account." Muting scripts x.com. A lower daily number lowers the risk; no number makes it allowed.</p>
   <details class="more">
     <summary>How muting works</summary>
     <ul>
-      <li>Mutes up to 25 accounts a day, one every few minutes, in background tabs it opens and closes.</li>
+      <li>Mutes up to the number a day you pick, one every few minutes, in background tabs it opens and closes.</li>
       <li>Clicks X's own Mute on x.com, so the mutes reach the X apps too. It never uses X's API.</li>
       <li>Mutes the list, your extra accounts and any bot set to Mute on X.</li>
       <li>Skips accounts you follow, Always-show accounts and every other bot, even one in your extra accounts.</li>
@@ -145,6 +158,14 @@
   <label class="field" for="extra">Also hide these accounts, and mute them when muting is on</label>
   <textarea id="extra" rows="3" spellcheck="false"></textarea>
   <button id="save" class="primary">Save</button>
+</details>
+
+<details class="card fold">
+  <summary><span>Label replies<span id="labelsSum" class="sum"></span></span></summary>
+  <label class="check"><input type="checkbox" id="labeling"><span>Show Slop and Not slop buttons under replies on x.com</span></label>
+  <p class="hint">Slop adds the account to Also hide; Not slop adds it to Always show. Each label keeps the reply's text and link, the post it answers, the time, and whether the list or your boxes already had the account. Labels stay in this browser; nothing is sent anywhere. To label a hidden reply, pause hiding first.</p>
+  <div class="btnrow"><button id="export">Export labels</button><button id="deleteLabels">Delete all labels</button></div>
+  <p id="labelsMsg" class="small muted" hidden></p>
 </details>
 
 <footer>Hiding works in this browser only. <a href="https://github.com/StartupBros-com/x-slop-hide#readme" target="_blank" rel="noopener">How x-slop-hide works</a></footer>

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         x-slop-hide
 // @namespace    https://github.com/StartupBros-com/x-slop-hide
-// @version      0.4.1
+// @version      0.5.0
 // @description  Hides x.com posts by accounts on a self-updating AI-reply spam list. Hides only; muting is in the browser extension.
 // @license      MIT
 // @homepageURL  https://github.com/StartupBros-com/x-slop-hide
@@ -53,9 +53,13 @@
     shrinkGuardFloor: 20,
     // Muting (off unless the user turns it on). Per UTC day: at most this many
     // mutes, and this many profile visits (an already-muted account costs a
-    // visit, not a mute).
+    // visit, not a mute). These are the default; muteCaps lists every daily
+    // cap the user may pick, and visits are always capped at twice the mutes.
     muteDailyCap: 25,
     muteVisitCap: 50,
+    // The only daily caps muteCap() returns. 100 is the ceiling: a stored
+    // value outside this list reads as muteDailyCap.
+    muteCaps: Object.freeze([25, 50, 100]),
     // Minutes between visits, picked at random in this range. The alarm that
     // drives muting fires once a minute (the floor at Chrome 116).
     muteGapMinutes: [1, 3],
@@ -68,13 +72,22 @@
     muteMaxAttempts: 2,
     // Accounts seen while browsing, muted ahead of the rest of the list.
     muteFrontMax: 50,
+    // Labels (extension only, off unless the user turns them on): at most
+    // this many saved, each keeping at most this many characters of reply text.
+    labelMax: 2000,
+    labelTextMax: 1000,
   });
 
   const STORAGE_KEYS = Object.freeze({
     list: 'xsh:list',
     settings: 'xsh:settings',
     mutes: 'xsh:mutes',
+    // How many labels are saved; each label is its own key, LABEL_PREFIX + post id.
+    labelCount: 'xsh:labelCount',
   });
+
+  const LABEL_PREFIX = 'xsh:label:';
+  const LABELS = Object.freeze(['slop', 'not_slop']);
 
   function normalizeHandle(raw) {
     if (raw == null) return null;
@@ -446,16 +459,35 @@
     return (rec.days && rec.days[today]) || { mutes: 0, visits: 0, stopped: null };
   }
 
-  // What today's caps leave. `stopped` is set when muting stopped itself for
-  // the day (an unexpected menu, a wrong account, a mute not on the list).
-  function muteBudget(rec, today) {
+  // The daily mute cap the user picked: 25, 50 or 100. Anything else,
+  // including a missing setting, reads as 25, so no stored value can raise
+  // the cap past 100.
+  function muteCap(settings) {
+    const v = settings && settings.muteCap;
+    return DEFAULTS.muteCaps.includes(v) ? v : DEFAULTS.muteDailyCap;
+  }
+
+  // A cap above the default mutes only while the user has an x.com tab of
+  // their own open.
+  function capNeedsXOpen(cap) {
+    return cap > DEFAULTS.muteDailyCap;
+  }
+
+  // What today's caps leave at the given daily cap (the default when cap is
+  // not one of muteCaps). Visits are capped at twice the mutes. `stopped` is
+  // set when muting stopped itself for the day (an unexpected menu, a wrong
+  // account, a mute not on the list).
+  function muteBudget(rec, today, cap) {
+    const c = DEFAULTS.muteCaps.includes(cap) ? cap : DEFAULTS.muteDailyCap;
     const d = dayOf(rec || emptyMutes(), today);
     return {
-      mutesLeft: Math.max(0, DEFAULTS.muteDailyCap - d.mutes),
-      visitsLeft: Math.max(0, DEFAULTS.muteVisitCap - d.visits),
+      mutesLeft: Math.max(0, c - d.mutes),
+      visitsLeft: Math.max(0, 2 * c - d.visits),
       stopped: d.stopped || null,
       mutes: d.mutes,
       visits: d.visits,
+      cap: c,
+      visitCap: 2 * c,
     };
   }
 
@@ -570,6 +602,104 @@
     };
   }
 
+  // ---------------------------------------------------------------- labels
+  //
+  // A label is the user's own call on one reply: slop or not slop. Each is
+  // stored under its own key (LABEL_PREFIX + the post id) in the extension's
+  // local storage and leaves the browser only in a file the user exports.
+
+  const STATUS_PATH_RE = /^\/([A-Za-z0-9_]{1,15})\/status\/(\d{1,25})(?:[/?#]|$)/;
+  const X_ORIGIN_RE = /^https:\/\/(?:mobile\.)?(?:x|twitter)\.com(?=\/)/i;
+
+  // The author handle and post id in a post's path or x.com URL
+  // (/h/status/123, https://x.com/h/status/123/photo/1), or null.
+  function statusOf(href) {
+    const p = String(href || '').replace(X_ORIGIN_RE, '');
+    const m = STATUS_PATH_RE.exec(p);
+    return m ? { handle: m[1].toLowerCase(), id: m[2] } : null;
+  }
+
+  const statusUrl = (s) => `https://x.com/${s.handle}/status/${s.id}`;
+
+  // Check and trim a label message from a content script. Returns
+  // { ok: false, reason } when anything in it is not what a label looks like,
+  // { ok: true, id, handle, label: null } for clearing one, else
+  // { ok: true, id, handle, label, record } with the record to store. ctx is
+  // what is stored now ({ handles, source } of the list, and settings); the
+  // record says what the list and the two boxes held before this label.
+  function labelRecord(msg, ctx, now) {
+    const m = msg || {};
+    const label = m.label === null ? null : LABELS.includes(m.label) ? m.label : undefined;
+    if (label === undefined) return { ok: false, reason: 'unknown label' };
+    const post = statusOf(m.url);
+    if (!post) return { ok: false, reason: 'not a post URL' };
+    const handle = normalizeHandle(m.handle);
+    if (!handle) return { ok: false, reason: 'not a handle' };
+    // The account that goes into a box must be the one the post's link names.
+    if (handle !== post.handle) return { ok: false, reason: "not the post's author" };
+    if (label === null) return { ok: true, id: post.id, handle, label: null };
+    const c = ctx || {};
+    const s = c.settings || {};
+    const page = statusOf(m.page);
+    let host = 'list';
+    try {
+      host = new URL(c.source || DEFAULTS.feedUrl).host || host;
+    } catch (e) {
+      // keep 'list'
+    }
+    const text = typeof m.text === 'string' ? Array.from(m.text).slice(0, DEFAULTS.labelTextMax).join('') : '';
+    const record = {
+      at: now,
+      label,
+      handle,
+      url: statusUrl(post),
+      text,
+      page: page ? statusUrl(page) : null,
+      list: new Set(c.handles || []).has(handle) ? host : null,
+      extra: parseAllowlist(s.extraList).has(handle),
+      allow: parseAllowlist(s.allowlist).has(handle),
+      // Whether x-slop-hide hides this account's replies on that page, with
+      // hiding not paused. Posts hidden for tagging a bot are not counted.
+      hidden: shouldHide(handle, {
+        list: effectiveList(c.handles, s),
+        allow: effectiveAllow(s),
+        owner: page ? page.handle : null,
+        paused: false,
+      }),
+    };
+    return { ok: true, id: post.id, handle, label, record };
+  }
+
+  // The settings change a label makes, or null for none: slop adds the
+  // account to Also hide, not_slop adds it to Always show. Neither takes an
+  // account out of a box, and clearing a label changes nothing.
+  function labelPatch(settings, handle, label) {
+    const field = label === 'slop' ? 'extraList' : label === 'not_slop' ? 'allowlist' : null;
+    const h = normalizeHandle(handle);
+    if (!field || !h) return null;
+    const text = String((settings && settings[field]) || '');
+    if (parseAllowlist(text).has(h)) return null;
+    const kept = text.replace(/\s+$/, '');
+    return { [field]: kept ? `${kept}\n${h}` : h };
+  }
+
+  // The label records in a storage snapshot (chrome.storage.local.get(null)),
+  // oldest first.
+  function labelsFrom(all) {
+    const o = all || {};
+    return Object.keys(o)
+      .filter((k) => k.startsWith(LABEL_PREFIX))
+      .map((k) => o[k])
+      .filter((r) => r && typeof r === 'object' && LABELS.includes(r.label))
+      .sort((a, b) => (a.at || 0) - (b.at || 0));
+  }
+
+  // One JSON object per line, ending in a newline when there is any.
+  function labelsJsonl(records) {
+    const rows = (records || []).map((r) => JSON.stringify(r));
+    return rows.length ? `${rows.join('\n')}\n` : '';
+  }
+
   const api = {
     HANDLE_RE,
     DEFAULTS,
@@ -602,6 +732,8 @@
     emptyMutes,
     muteEligible,
     muteCandidates,
+    muteCap,
+    capNeedsXOpen,
     muteBudget,
     recordOutcome,
     recordCheck,
@@ -609,6 +741,13 @@
     stopDay,
     noteSighting,
     muteSummary,
+    LABEL_PREFIX,
+    LABELS,
+    statusOf,
+    labelRecord,
+    labelPatch,
+    labelsFrom,
+    labelsJsonl,
   };
   root.XSlopHide = api;
   if (typeof module === 'object' && module && module.exports) module.exports = api;
@@ -745,9 +884,15 @@
 // X's own Mute item, then reports back, and the worker closes the tab. It never
 // calls X's API.
 //
+// Labels, when the user has turned them on (extension only): on a post's
+// page, every other post gets a small Slop / Not slop pair. A click there is
+// the only thing this script acts on in the user's own tabs, and only a
+// click the browser marks as the user's own.
+//
 // State comes from an adapter: the extension adapter below (chrome.storage,
 // filled by background.js), or globalThis.XSlopHideAdapter when the userscript
-// build supplies one. The userscript adapter has no jobs, so it only hides.
+// build supplies one. The userscript adapter has no jobs and no labels, so it
+// only hides.
 (function () {
   'use strict';
   const L = globalThis.XSlopHide;
@@ -768,11 +913,36 @@
   const hiddenAuthors = new Set();
   const hiddenMentions = new Set(); // distinct posts hidden for tagging a bot
 
+  // Labels (see the header). BAR marks the pair, its value the post id.
+  const BAR = 'data-xsh-bar';
+  let labeling = false;
+  let listed = new Set(); // the list itself, for the note beside the pair
+  let allowBox = new Set(); // Always show, as typed
+  let extraBox = new Set(); // Also hide, as typed
+  const labels = new Map(); // post id -> 'slop' | 'not_slop' | null, once read
+  const asked = new Set(); // post ids whose label was read or is being read
+  const toRead = new Set();
+  const notes = new Map(); // post id -> why the last click was not saved
+
   function injectStyle() {
     if (document.getElementById('xsh-style')) return;
     const st = document.createElement('style');
     st.id = 'xsh-style';
     st.textContent = `[${ATTR}]{display:none!important}`;
+    (document.head || document.documentElement).appendChild(st);
+  }
+
+  // The label bar's look, added only once labelling is turned on, so a page
+  // with labelling off gets nothing beyond the hide rule.
+  function injectBarStyle() {
+    if (document.getElementById('xsh-bar-style')) return;
+    const st = document.createElement('style');
+    st.id = 'xsh-bar-style';
+    st.textContent =
+      `[${BAR}]{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:2px 0 8px 56px;font:13px/1.3 system-ui,sans-serif;color:rgb(113,118,123)}` +
+      `[${BAR}] button{font:inherit;color:inherit;background:transparent;border:1px solid rgba(113,118,123,.6);border-radius:999px;padding:2px 10px;cursor:pointer}` +
+      `[${BAR}] button[aria-pressed="true"][data-xsh-label="slop"]{color:#fff;background:rgb(244,33,46);border-color:rgb(244,33,46)}` +
+      `[${BAR}] button[aria-pressed="true"][data-xsh-label="not_slop"]{color:#fff;background:rgb(0,150,100);border-color:rgb(0,150,100)}`;
     (document.head || document.documentElement).appendChild(st);
   }
 
@@ -811,9 +981,176 @@
     }
   }
 
+  // ---------------------------------------------------------------- labels
+
+  // The post a pair would label, or null: on a post's page, any other post
+  // with its own link and author. The post the page is about gets none.
+  function labelTarget(article) {
+    const focal = L.statusOf(location.pathname);
+    if (!focal) return null;
+    const url = postKey(article);
+    const post = url && L.statusOf(url);
+    if (!post || post.id === focal.id) return null;
+    const author = L.authorHandleOf(article);
+    return author ? { id: post.id, url, author } : null;
+  }
+
+  // The post's own text (not a quoted post's), with emoji, which X draws as
+  // images, read from their alt text.
+  function postText(article) {
+    const el = [...article.querySelectorAll('[data-testid="tweetText"]')].find((t) => !L.insideQuoteCard(t, article));
+    if (!el) return '';
+    const parts = [];
+    const walk = (n) => {
+      for (const c of n.childNodes) {
+        if (c.nodeType === 3) parts.push(c.data);
+        else if (c.nodeType === 1 && c.tagName === 'IMG') parts.push(c.getAttribute('alt') || '');
+        else if (c.nodeType === 1) walk(c);
+      }
+    };
+    walk(el);
+    return parts.join('').trim();
+  }
+
+  function barOf(article) {
+    for (const c of article.children) if (c.hasAttribute(BAR)) return c;
+    return null;
+  }
+
+  function makeBar() {
+    const bar = document.createElement('div');
+    bar.setAttribute(BAR, '');
+    bar.setAttribute('role', 'group');
+    bar.setAttribute('aria-label', 'x-slop-hide label');
+    for (const [label, text] of [
+      ['slop', 'Slop'],
+      ['not_slop', 'Not slop'],
+    ]) {
+      const b = document.createElement('button');
+      b.setAttribute('type', 'button');
+      b.setAttribute('data-xsh-label', label);
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = text;
+      bar.appendChild(b);
+    }
+    const note = document.createElement('span');
+    note.setAttribute('data-xsh-note', '');
+    bar.appendChild(note);
+    // X opens a post on a click anywhere in it, and has keyboard shortcuts:
+    // nothing done in the pair reaches its handlers.
+    for (const type of ['click', 'auxclick', 'dblclick', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'touchend', 'keydown', 'keyup']) {
+      bar.addEventListener(type, (e) => onBarEvent(e, bar));
+    }
+    return bar;
+  }
+
+  // Why an account shows despite a Slop label, or what already covers it.
+  function boxNote(author) {
+    if (allowBox.has(author)) return 'in Always show';
+    if (extraBox.has(author)) return 'in Also hide';
+    if (listed.has(author)) return 'on the list';
+    return '';
+  }
+
+  // Bring a pair up to date. Writes only what differs, so its own mutations
+  // settle on the next pass.
+  function renderBar(bar, id, author) {
+    const cur = labels.get(id) || null;
+    for (const b of bar.querySelectorAll('[data-xsh-label]')) {
+      const v = String(b.getAttribute('data-xsh-label') === cur);
+      if (b.getAttribute('aria-pressed') !== v) b.setAttribute('aria-pressed', v);
+    }
+    const note = bar.querySelector('[data-xsh-note]');
+    const text = notes.get(id) || boxNote(author);
+    if (note && note.textContent !== text) note.textContent = text;
+  }
+
+  // Add, update or remove the pair on one post. X reuses a post's nodes for
+  // another post, so the pair is re-keyed whenever the post's link changes.
+  function syncBar(article) {
+    if (!labeling) return;
+    const t = labelTarget(article);
+    let bar = barOf(article);
+    if (!t) {
+      if (bar) bar.remove();
+      return;
+    }
+    if (!bar) {
+      bar = makeBar();
+      article.appendChild(bar);
+    }
+    if (bar.getAttribute(BAR) !== t.id) bar.setAttribute(BAR, t.id);
+    if (bar.getAttribute('data-xsh-author') !== t.author) bar.setAttribute('data-xsh-author', t.author);
+    renderBar(bar, t.id, t.author);
+    if (!asked.has(t.id)) readLabel(t.id);
+  }
+
+  function renderId(id) {
+    for (const bar of document.querySelectorAll(`[${BAR}]`)) {
+      if (bar.getAttribute(BAR) === id) renderBar(bar, id, bar.getAttribute('data-xsh-author') || '');
+    }
+  }
+
+  // Read stored labels for posts as their pairs appear, a batch at a time.
+  function readLabel(id) {
+    asked.add(id);
+    toRead.add(id);
+    if (toRead.size > 1) return;
+    setTimeout(() => {
+      const ids = [...toRead];
+      toRead.clear();
+      Promise.resolve(adapter.getLabels ? adapter.getLabels(ids) : {})
+        .then((got) => {
+          for (const id of ids) if (!labels.has(id)) labels.set(id, (got && got[id]) || null);
+          for (const id of ids) renderId(id);
+        })
+        .catch(() => {});
+    }, 0);
+  }
+
+  function onBarEvent(e, bar) {
+    e.stopPropagation();
+    if (e.type !== 'click') return;
+    e.preventDefault();
+    // A click made by the page's own script, not the user: ignored.
+    if (e.isTrusted === false) return;
+    const btn = e.target && e.target.closest ? e.target.closest('[data-xsh-label]') : null;
+    const article = bar.closest(ARTICLE);
+    if (btn && article) saveLabel(article, btn.getAttribute('data-xsh-label'));
+  }
+
+  // Clicking the label a post already has clears it.
+  async function saveLabel(article, which) {
+    const t = labelTarget(article);
+    if (!t || !labeling) return;
+    const label = labels.get(t.id) === which ? null : which;
+    let res;
+    try {
+      res = await adapter.saveLabel({ label, handle: t.author, url: t.url, page: location.pathname, text: postText(article) });
+    } catch (e) {
+      res = { ok: false, reason: String((e && e.message) || e) };
+    }
+    if (res && res.ok) {
+      notes.delete(t.id);
+      labels.set(t.id, label);
+    } else {
+      notes.set(t.id, `not saved: ${(res && res.reason) || 'no answer'}`);
+    }
+    renderId(t.id);
+  }
+
+  function onLabelChange(id, label) {
+    labels.set(id, label || null);
+    asked.add(id);
+    renderId(id);
+  }
+
   function rescanAll() {
     const owner = L.pageOwner(location.pathname);
-    for (const art of document.querySelectorAll(ARTICLE)) evaluate(art, owner);
+    for (const art of document.querySelectorAll(ARTICLE)) {
+      evaluate(art, owner);
+      syncBar(art);
+    }
     // Cells hidden earlier whose post has since been replaced or unlisted.
     for (const cell of document.querySelectorAll(`[${ATTR}]`)) {
       const art = cell.matches(ARTICLE) ? cell : cell.querySelector(ARTICLE);
@@ -871,16 +1208,27 @@
       else for (const art of articles) touched.add(art);
     }
     // A node added then removed in the same batch must not affect live state or stats.
-    for (const art of touched) if (document.contains(art)) evaluate(art, owner);
+    for (const art of touched) {
+      if (!document.contains(art)) continue;
+      evaluate(art, owner);
+      syncBar(art);
+    }
   }
 
   function applyState(s) {
     const handles = (s.list && s.list.handles) || [];
+    const st = s.settings || {};
     list = L.effectiveList(handles, s.settings);
     allow = L.effectiveAllow(s.settings);
     mentions = L.mentionTargets(s.settings, handles);
-    paused = !!(s.settings && s.settings.paused);
-    muting = !!(s.settings && s.settings.muteEnabled);
+    paused = !!st.paused;
+    muting = !!st.muteEnabled;
+    listed = new Set(handles);
+    allowBox = L.parseAllowlist(st.allowlist);
+    extraBox = L.parseAllowlist(st.extraList);
+    labeling = !!(st.labeling === true && adapter.saveLabel);
+    if (labeling) injectBarStyle();
+    else for (const bar of document.querySelectorAll(`[${BAR}]`)) bar.remove();
     rescanAll();
   }
 
@@ -1048,6 +1396,43 @@
         chrome.runtime.sendMessage({ type: 'xsh:job-go', id: job.id }).then((ok) => ok === true, () => false),
       reportJob: (result) => chrome.runtime.sendMessage({ type: 'xsh:job-result', result }).catch(() => {}),
       noteSighting: (handle) => chrome.runtime.sendMessage({ type: 'xsh:sighting', handle }).catch(() => {}),
+      // Asked by the worker before a mute visit at 50 or 100 a day: is an
+      // x.com tab of the user's own open? fn answers no in a job's tab.
+      answerPresent(fn) {
+        chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+          if (!msg || msg.type !== 'xsh:present') return false;
+          Promise.resolve()
+            .then(fn)
+            .then((v) => sendResponse(v === true), () => sendResponse(false));
+          return true;
+        });
+      },
+      // The worker checks and stores a label; it answers { ok } or { ok: false, reason }.
+      saveLabel: (m) =>
+        chrome.runtime
+          .sendMessage(Object.assign({}, m, { type: 'xsh:label' }))
+          .catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+      getLabels(ids) {
+        const keys = ids.map((id) => L.LABEL_PREFIX + id);
+        return chrome.storage.local.get(keys).then((o) => {
+          const out = {};
+          for (const id of ids) {
+            const r = o[L.LABEL_PREFIX + id];
+            out[id] = r && L.LABELS.includes(r.label) ? r.label : null;
+          }
+          return out;
+        });
+      },
+      subscribeLabels(cb) {
+        chrome.storage.onChanged.addListener((changes, area) => {
+          if (area !== 'local') return;
+          for (const k of Object.keys(changes)) {
+            if (!k.startsWith(L.LABEL_PREFIX)) continue;
+            const v = changes[k].newValue;
+            cb(k.slice(L.LABEL_PREFIX.length), v && L.LABELS.includes(v.label) ? v.label : null);
+          }
+        });
+      },
     };
   }
 
@@ -1064,9 +1449,16 @@
     attributeFilter: ['href'],
   });
   adapter.subscribe(applyState);
+  if (adapter.subscribeLabels) adapter.subscribeLabels(onLabelChange);
   if (adapter.serveStats) adapter.serveStats(stats);
   adapter.load().then(applyState);
-  if (adapter.getJob && adapter.reportJob) adapter.getJob().then((job) => job && runJob(job));
+  // A tab the worker opened for a job gets the job; every other tab gets null.
+  let jobAsk = Promise.resolve(null);
+  if (adapter.getJob && adapter.reportJob) {
+    jobAsk = Promise.resolve(adapter.getJob()).catch(() => null);
+    jobAsk.then((job) => job && runJob(job));
+  }
+  if (adapter.answerPresent) adapter.answerPresent(() => jobAsk.then((job) => !job, () => false));
 
   // Exposed for the userscript adapter and the live test harness only.
   globalThis.XSlopHideContent = { stats, rescanAll, applyState, runJob };

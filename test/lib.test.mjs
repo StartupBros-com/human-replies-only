@@ -220,9 +220,138 @@ test('muteCandidates: front queue first, then the list, then retries; never @gro
 
 test('muteBudget counts down both caps for the UTC day', () => {
   const rec = { ...lib.emptyMutes(), days: { [DAY]: { mutes: 24, visits: 49, stopped: null } } };
-  assert.deepEqual(lib.muteBudget(rec, DAY), { mutesLeft: 1, visitsLeft: 1, stopped: null, mutes: 24, visits: 49 });
-  assert.deepEqual(lib.muteBudget(rec, '2026-11-07'), { mutesLeft: 25, visitsLeft: 50, stopped: null, mutes: 0, visits: 0 });
+  const at25 = { stopped: null, cap: 25, visitCap: 50 };
+  assert.deepEqual(lib.muteBudget(rec, DAY), { mutesLeft: 1, visitsLeft: 1, mutes: 24, visits: 49, ...at25 });
+  assert.deepEqual(lib.muteBudget(rec, '2026-11-07'), { mutesLeft: 25, visitsLeft: 50, mutes: 0, visits: 0, ...at25 });
   assert.equal(lib.utcDay(Date.UTC(2026, 10, 6, 23, 59, 59)), DAY);
+});
+
+test('muteBudget at 50 and 100 caps visits at twice the mutes; any other cap is 25', () => {
+  const rec = { ...lib.emptyMutes(), days: { [DAY]: { mutes: 30, visits: 70, stopped: null } } };
+  assert.deepEqual(lib.muteBudget(rec, DAY, 50), { mutesLeft: 20, visitsLeft: 30, stopped: null, mutes: 30, visits: 70, cap: 50, visitCap: 100 });
+  assert.deepEqual(lib.muteBudget(rec, DAY, 100), { mutesLeft: 70, visitsLeft: 130, stopped: null, mutes: 30, visits: 70, cap: 100, visitCap: 200 });
+  for (const cap of [undefined, 0, 26, 99, 101, 1000, '100', Infinity, NaN]) {
+    const b = lib.muteBudget(rec, DAY, cap);
+    assert.equal(b.cap, 25, String(cap));
+    assert.equal(b.mutesLeft, 0, String(cap));
+  }
+});
+
+test('muteCap reads only 25, 50 or 100, so no stored value goes past 100', () => {
+  assert.equal(lib.muteCap(undefined), 25);
+  assert.equal(lib.muteCap({}), 25);
+  assert.equal(lib.muteCap({ muteCap: 50 }), 50);
+  assert.equal(lib.muteCap({ muteCap: 100 }), 100);
+  for (const v of [200, 1000, 99, 26, 0, -1, '50', '100', null, true, Infinity, NaN, [100], { valueOf: () => 100 }]) {
+    assert.equal(lib.muteCap({ muteCap: v }), 25, String(v));
+  }
+  assert.deepEqual([...lib.DEFAULTS.muteCaps], [25, 50, 100]);
+  assert.throws(() => lib.DEFAULTS.muteCaps.push(500));
+  assert.equal(lib.capNeedsXOpen(25), false);
+  assert.equal(lib.capNeedsXOpen(50), true);
+  assert.equal(lib.capNeedsXOpen(100), true);
+});
+
+const LABEL_CTX = {
+  handles: ['slop_a', 'grok'],
+  source: 'https://clankwall.vogel.dev/api/usernames.txt',
+  settings: { extraList: 'extra_a', allowlist: 'friend\nslop_a' },
+};
+
+test('statusOf reads an author and post id from a path or an x.com URL', () => {
+  assert.deepEqual(lib.statusOf('/Slop_A/status/1234'), { handle: 'slop_a', id: '1234' });
+  assert.deepEqual(lib.statusOf('/slop_a/status/1234/photo/1'), { handle: 'slop_a', id: '1234' });
+  assert.deepEqual(lib.statusOf('https://x.com/slop_a/status/1234?s=20'), { handle: 'slop_a', id: '1234' });
+  assert.deepEqual(lib.statusOf('https://mobile.twitter.com/slop_a/status/99#m'), { handle: 'slop_a', id: '99' });
+  for (const bad of [null, '', '/slop_a', '/slop_a/status/', '/slop_a/status/12a', '/slop_a/statuses/1', 'https://evil.com/slop_a/status/1', 'https://x.com.evil.com/a/status/1', 'javascript:/a/status/1', '/sixteen_chars_xx/status/1', `/a/status/${'1'.repeat(26)}`]) {
+    assert.equal(lib.statusOf(bad), null, String(bad));
+  }
+});
+
+test('labelRecord checks the message and records what the list and boxes held', () => {
+  const NOW_L = Date.UTC(2026, 10, 8, 12);
+  const msg = { label: 'slop', handle: '@Slop_B', url: '/slop_b/status/111', page: '/OP/status/100', text: 'Great insight! 🚀' };
+  const r = lib.labelRecord(msg, LABEL_CTX, NOW_L);
+  assert.equal(r.ok, true);
+  assert.equal(r.id, '111');
+  assert.equal(r.handle, 'slop_b');
+  assert.deepEqual(r.record, {
+    at: NOW_L,
+    label: 'slop',
+    handle: 'slop_b',
+    url: 'https://x.com/slop_b/status/111',
+    text: 'Great insight! 🚀',
+    page: 'https://x.com/op/status/100',
+    list: null,
+    extra: false,
+    allow: false,
+    hidden: false,
+  });
+  // A listed account in Always show: on the list, allowed, so not hidden.
+  const listed = lib.labelRecord({ ...msg, label: 'not_slop', handle: 'slop_a', url: '/slop_a/status/5' }, LABEL_CTX, NOW_L).record;
+  assert.equal(listed.list, 'clankwall.vogel.dev');
+  assert.equal(listed.allow, true);
+  assert.equal(listed.hidden, false);
+  // An extra account is hidden, except on its own page.
+  const extra = lib.labelRecord({ ...msg, handle: 'extra_a', url: '/extra_a/status/6' }, LABEL_CTX, NOW_L).record;
+  assert.deepEqual([extra.list, extra.extra, extra.hidden], [null, true, true]);
+  assert.equal(lib.labelRecord({ ...msg, handle: 'extra_a', url: '/extra_a/status/6', page: '/extra_a/status/1' }, LABEL_CTX, NOW_L).record.hidden, false);
+  // A listed account with nothing protecting it is hidden; pause is ignored.
+  const s2 = { ...LABEL_CTX, settings: { paused: true } };
+  assert.equal(lib.labelRecord({ ...msg, handle: 'slop_a', url: '/slop_a/status/7' }, s2, NOW_L).record.hidden, true);
+  // Text is cut to labelTextMax characters, never through an emoji.
+  const long = lib.labelRecord({ ...msg, text: '🚀'.repeat(1500) }, LABEL_CTX, NOW_L).record.text;
+  assert.equal(Array.from(long).length, 1000);
+  assert.equal(lib.labelRecord({ ...msg, text: { x: 1 } }, LABEL_CTX, NOW_L).record.text, '');
+  assert.equal(lib.labelRecord({ ...msg, page: 'https://evil.com/a/status/1' }, LABEL_CTX, NOW_L).record.page, null);
+  // Clearing needs only a valid post and handle.
+  assert.deepEqual(lib.labelRecord({ label: null, handle: 'slop_b', url: '/slop_b/status/111' }, LABEL_CTX, NOW_L), { ok: true, id: '111', handle: 'slop_b', label: null });
+  // Anything else is refused.
+  for (const bad of [
+    { ...msg, label: 'SLOP' },
+    { ...msg, label: undefined },
+    { ...msg, label: 'block' },
+    { ...msg, url: '/slop_b' },
+    { ...msg, url: 'https://evil.com/slop_b/status/1' },
+    { ...msg, handle: 'not a handle' },
+    { ...msg, handle: undefined },
+    { ...msg, handle: 'slop_a' }, // the link names @slop_b
+    { label: null, handle: 'slop_a', url: '/slop_b/status/111' },
+    null,
+  ]) {
+    assert.equal(lib.labelRecord(bad, LABEL_CTX, NOW_L).ok, false, JSON.stringify(bad));
+  }
+  assert.equal(lib.labelRecord({ ...msg, handle: 'slop_a' }, LABEL_CTX, NOW_L).reason, "not the post's author");
+});
+
+test('labelPatch adds to Also hide or Always show and never removes anything', () => {
+  assert.deepEqual(lib.labelPatch({}, 'Slop_B', 'slop'), { extraList: 'slop_b' });
+  assert.deepEqual(lib.labelPatch({ extraList: 'a, b  \n' }, 'slop_b', 'slop'), { extraList: 'a, b\nslop_b' });
+  assert.equal(lib.labelPatch({ extraList: 'a\n@Slop_B' }, 'slop_b', 'slop'), null);
+  assert.deepEqual(lib.labelPatch({ allowlist: 'friend' }, 'pal', 'not_slop'), { allowlist: 'friend\npal' });
+  // Mark slop on an Always-show account adds it to Also hide and leaves Always show alone.
+  assert.deepEqual(lib.labelPatch({ allowlist: 'pal' }, 'pal', 'slop'), { extraList: 'pal' });
+  assert.equal(lib.labelPatch({}, 'pal', null), null);
+  assert.equal(lib.labelPatch({}, 'pal', 'block'), null);
+  assert.equal(lib.labelPatch({}, 'not a handle', 'slop'), null);
+});
+
+test('labelsFrom keeps only label records, oldest first, and labelsJsonl writes one per line', () => {
+  const all = {
+    'xsh:list': { handles: ['x'] },
+    'xsh:labelCount': 3,
+    'xsh:label:2': { at: 20, label: 'not_slop', handle: 'b' },
+    'xsh:label:1': { at: 10, label: 'slop', handle: 'a' },
+    'xsh:label:3': { at: 30, label: 'weird', handle: 'c' },
+    'xsh:label:4': 'junk',
+  };
+  const recs = lib.labelsFrom(all);
+  assert.deepEqual(recs.map((r) => r.handle), ['a', 'b']);
+  const out = lib.labelsJsonl(recs);
+  assert.equal(out, '{"at":10,"label":"slop","handle":"a"}\n{"at":20,"label":"not_slop","handle":"b"}\n');
+  assert.deepEqual(out.trim().split('\n').map((l) => JSON.parse(l).handle), ['a', 'b']);
+  assert.equal(lib.labelsJsonl([]), '');
+  assert.deepEqual(lib.labelsFrom(null), []);
 });
 
 test('recordOutcome: a mute counts, waits for a check and leaves the front queue', () => {
