@@ -143,11 +143,12 @@ folded; click a heading to open it. A folded heading shows its counts, such as
 "Show 5 · Hide here 1 · Mute on X 0", "Always show 2 · Also hide 0" or "On ·
 12 saved".
 
-**Save** saves both boxes at once. On an x.com tab, the popup also counts what
-it hid there: "This tab: N posts from M accounts hidden (K on screen now)", with
-", plus N posts that tag a bot" before the brackets when tag hiding hid any.
-While hiding is paused, it says "Paused on this tab." The userscript has no
-counter.
+**Save** saves both boxes at once. On an x.com tab, the popup opens with the
+count of what it hid there, "N posts hidden on this tab", and under it "From M
+accounts. K on screen now." It adds "Plus N posts that tag a bot." when tag
+hiding hid any. On any other tab it says "Open x.com in this tab to see what
+was hidden." While hiding is paused, it says "Hiding is paused" on every tab.
+The userscript has no counter.
 
 ## What gets hidden
 

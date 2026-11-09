@@ -308,19 +308,41 @@ try {
   }, xTab);
   const openPopup = async () => {
     await popup.goto(`chrome-extension://${extId}/src/popup.html`);
-    await popup.waitForFunction(() => /^This tab: |^Paused on this tab/.test(document.getElementById('tab').textContent), null, { timeout: 15000 });
+    await popup.waitForFunction(() => /hidden on this tab$|^Hiding is paused$/.test(document.getElementById('tab').textContent), null, { timeout: 15000 });
     await sleep(300);
+  };
+  // One part of the popup drawn as a card of its own: its top and bottom
+  // rules are dropped and 12px of the popup's background goes above and below
+  // it, so neither its neighbours nor its edge rules show; the clip starts a
+  // pixel inside, since a part's top can fall between pixels. A chevron turns in
+  // 150 ms, so the shot waits for it.
+  const shootPart = async (selector) => {
+    await sleep(300);
+    const r = await popup.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      if (!el) throw new Error(`no ${sel} in the popup`);
+      el.style.borderTopWidth = '0';
+      el.style.borderBottomWidth = '0';
+      el.style.paddingTop = '12px';
+      el.style.paddingBottom = '12px';
+      const b = el.getBoundingClientRect();
+      return { x: b.left, y: b.top + window.scrollY, w: b.width, h: b.height };
+    }, selector);
+    const x = Math.max(0, Math.floor(r.x - 16));
+    const shot = await popup.screenshot({ fullPage: true, clip: { x, y: Math.ceil(r.y) + 1, width: Math.min(400 - x, Math.ceil(r.w + 32)), height: Math.floor(r.h) - 2 } });
+    await popup.evaluate((sel) => document.querySelector(sel).removeAttribute('style'), selector);
+    return shot;
   };
   await openPopup();
   console.log(`popup: ${await popup.textContent('#tab')} | ${await popup.textContent('#list')}`);
-  // The top of the popup: the header, the tab and list card, and the start of
-  // the muting card, which the composition fades out.
-  const cut = await popup.evaluate(() => Math.ceil(document.querySelectorAll('section.card')[1].getBoundingClientRect().top + 64));
+  // The top of the popup: the header, the tab count and the list, and the
+  // start of the muting section, which the composition fades out.
+  const cut = await popup.evaluate(() => Math.ceil(document.querySelector('section.muting').getBoundingClientRect().top + 64));
   const top = await popup.screenshot({ clip: { x: 0, y: 0, width: 400, height: cut } });
   await popup.evaluate(() => {
     document.querySelector('details.more').open = true;
   });
-  const muting = await popup.locator('section.card').nth(1).screenshot();
+  const muting = await shootPart('section.muting');
 
   // ---- 4. labels, with hiding paused so the labelled replies stay in view
   await setSettings({ labeling: true, paused: true });
@@ -340,7 +362,7 @@ try {
   await popup.evaluate(() => {
     document.getElementById('labeling').closest('details').open = true;
   });
-  const labelsCard = await popup.locator('details.card', { has: popup.locator('#labeling') }).screenshot();
+  const labelsCard = await shootPart('details.fold:has(#labeling)');
 
   // ---- compose
   const shoot = async (name, html, w, h) => {

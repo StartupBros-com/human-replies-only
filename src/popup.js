@@ -4,6 +4,15 @@
   const K = L.STORAGE_KEYS;
   const $ = (id) => document.getElementById(id);
 
+  // render() runs again after every change; writing only what differs keeps
+  // the live regions (role=status, role=alert) from announcing a message twice.
+  function setText(el, text) {
+    if (el.textContent !== text) el.textContent = text;
+  }
+  function setHidden(el, hidden) {
+    if (el.hidden !== hidden) el.hidden = hidden;
+  }
+
   function ago(ms) {
     if (!ms) return 'never';
     const m = Math.round((Date.now() - ms) / 60000);
@@ -23,35 +32,42 @@
     if (document.activeElement !== sel) setChoice(sel, String(cap));
     const top = Math.max(...L.DEFAULTS.muteCaps);
     const left = L.muteCandidates(handles, s, m).length;
-    $('capWhy').textContent =
+    setText(
+      $('capWhy'),
       `No setting goes above ${top}: hiding already covers this browser, and muting only adds the X apps.` +
-      (left ? ` At ${top} a day, muting the ${plural(left, 'account', 'accounts')} left takes ${plural(Math.ceil(left / top), 'day', 'days')}.` : '');
+        (left ? ` At ${top} a day, muting the ${plural(left, 'account', 'accounts')} left takes ${plural(Math.ceil(left / top), 'day', 'days')}.` : ''),
+    );
   }
 
   // Off: only the hint to fill Always show first. On: who it mutes as,
-  // today's mutes as a bar and in words, and the totals so far.
+  // today's mutes as a bar and in words, and the totals so far. A stopped
+  // day also says when muting starts again and where each reason is explained.
   function renderMuting(s, m) {
     const on = !!(s.muteEnabled && s.muteAccount);
     $('mute').checked = on;
-    $('muteHint').hidden = on;
-    $('muteOn').hidden = !on;
+    setHidden($('muteHint'), on);
+    setHidden($('muteOn'), !on);
     if (!on) {
-      $('muteStop').hidden = true;
+      setHidden($('muteStop'), true);
+      setHidden($('muteNext'), true);
       return;
     }
     const now = Date.now();
     const b = L.muteBudget(m, L.utcDay(now), L.muteCap(s));
     const t = L.muteSummary(m);
     const next = m.nextAt && m.nextAt > now ? ` · next visit in ${Math.ceil((m.nextAt - now) / 60000)} min` : '';
-    $('muteWho').textContent = `Muting as @${s.muteAccount}`;
+    setText($('muteWho'), `Muting as @${s.muteAccount}`);
     $('muteBar').setAttribute('max', String(b.cap));
     $('muteBar').setAttribute('value', String(Math.min(b.mutes, b.cap)));
-    $('muteToday').textContent = `Today (UTC): ${b.mutes} of ${b.cap} mutes, ${b.visits} of ${b.visitCap} visits${next}`;
-    $('muteTotals').textContent =
+    setText($('muteToday'), `Today (UTC): ${b.mutes} of ${b.cap} mutes, ${b.visits} of ${b.visitCap} visits${next}`);
+    setText(
+      $('muteTotals'),
       `So far: ${t.muted} muted (${t.confirmed} seen on your muted list, ${t.notFound} not found there), ` +
-      `${t.already} already muted, ${t.followed} you follow, ${t.skipped} skipped.`;
-    $('muteStop').hidden = !b.stopped;
-    $('muteStop').textContent = b.stopped ? `Stopped for today: ${b.stopped}` : '';
+        `${t.already} already muted, ${t.followed} you follow, ${t.skipped} skipped.`,
+    );
+    setHidden($('muteStop'), !b.stopped);
+    setHidden($('muteNext'), !b.stopped);
+    setText($('muteStop'), b.stopped ? `Stopped for today: ${b.stopped}` : '');
   }
 
   // Labels: on or off, how many are saved, export and a two-click delete.
@@ -59,15 +75,41 @@
   function renderLabels(s, n) {
     if (n === 0) deleteArmed = false;
     $('labeling').checked = s.labeling === true;
-    $('labelsSum').textContent = `${s.labeling === true ? 'On' : 'Off'} · ${n} saved`;
-    $('export').textContent = `Export labels (${n})`;
+    setText($('labelsSum'), `${s.labeling === true ? 'On' : 'Off'} · ${n} saved`);
+    setText($('export'), `Export labels (${n})`);
+    // A button that is disabled while it has focus drops focus to the page;
+    // hand it to the labels switch first.
+    const active = document.activeElement;
+    if (n === 0 && (active === $('export') || active === $('deleteLabels')) && typeof $('labeling').focus === 'function') {
+      $('labeling').focus();
+    }
     $('export').disabled = n === 0;
     $('deleteLabels').disabled = n === 0;
-    $('deleteLabels').textContent = deleteArmed ? `Click again to delete ${plural(n, 'label', 'labels')}` : 'Delete all labels';
+    $('deleteLabels').className = deleteArmed ? 'armed' : '';
+    setText($('deleteLabels'), deleteArmed ? `Click again to delete ${plural(n, 'label', 'labels')}` : 'Delete all labels');
   }
   function labelsNote(text) {
-    $('labelsMsg').hidden = !text;
-    $('labelsMsg').textContent = text || '';
+    setHidden($('labelsMsg'), !text);
+    setText($('labelsMsg'), text || '');
+  }
+
+  // The tab line: the number first, then where it came from.
+  function renderTab(text, more, num) {
+    const el = $('tab');
+    el.className = num == null ? 'hero say' : 'hero';
+    if (num == null) {
+      setText(el, text);
+    } else if (el.textContent !== `${num} ${text}`) {
+      const big = document.createElement('span');
+      big.className = 'num';
+      big.textContent = String(num);
+      const what = document.createElement('span');
+      what.className = 'what';
+      what.textContent = text;
+      el.replaceChildren(big, ' ', what);
+    }
+    setHidden($('tabMore'), !more);
+    setText($('tabMore'), more || '');
   }
 
   async function render() {
@@ -85,33 +127,35 @@
     } catch (_) {
       host = String(rec.source || '');
     }
-    $('list').textContent = `${rec.handles.length} listed accounts · ${host}`;
-    $('listAge').textContent = rec.fetchedAt ? `Updated ${ago(rec.fetchedAt)}` : 'Not fetched yet';
-    $('err').hidden = !rec.lastError;
-    $('err').textContent = rec.lastError ? `Last refresh failed (${ago(rec.lastAttemptAt)}): ${rec.lastError}. Still using the previous list.` : '';
+    setText($('list'), `${plural(rec.handles.length, 'account', 'accounts')} on the list`);
+    setText($('listAge'), `From ${host}, ${rec.fetchedAt ? `updated ${ago(rec.fetchedAt)}` : 'not fetched yet'}`);
+    setHidden($('err'), !rec.lastError);
+    setText($('err'), rec.lastError ? `Last refresh failed (${ago(rec.lastAttemptAt)}): ${rec.lastError}. Still using the previous list.` : '');
     $('paused').checked = !!s.paused;
     if (document.activeElement !== $('allow')) $('allow').value = s.allowlist || '';
     if (document.activeElement !== $('extra')) $('extra').value = s.extraList || '';
     const count = (text) => L.parseAllowlist(text).size;
-    $('listsSum').textContent = `Always show ${count(s.allowlist)} · Also hide ${count(s.extraList)}`;
+    setText($('listsSum'), `Always show ${count(s.allowlist)} · Also hide ${count(s.extraList)}`);
     renderBots(s, rec.handles);
     $('mentions').checked = s.hideBotMentions === true;
 
+    // Pause is one setting for every tab, so it reads the same on any tab.
+    if (s.paused) return renderTab('Hiding is paused', 'Turn off Pause hiding to hide posts again.');
+    let st = null;
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    $('tab').textContent = 'Open x.com in this tab to see what was hidden.';
     if (tab && tab.id != null) {
       try {
-        const st = await chrome.tabs.sendMessage(tab.id, { type: 'xsh:stats' });
-        if (st) {
-          const tags = st.hiddenMentions ? `, plus ${st.hiddenMentions} posts that tag a bot` : '';
-          $('tab').textContent = st.paused
-            ? 'Paused on this tab.'
-            : `This tab: ${st.hiddenPosts} posts from ${st.hiddenAuthors.length} accounts hidden${tags} (${st.hiddenNow} on screen now).`;
-        }
+        st = await chrome.tabs.sendMessage(tab.id, { type: 'xsh:stats' });
       } catch (_) {
         // No content script in this tab (not x.com).
       }
     }
+    if (!st) return renderTab('Open x.com in this tab to see what was hidden.');
+    if (st.paused) return renderTab('Hiding is paused', 'Turn off Pause hiding to hide posts again.');
+    const more = [];
+    if (st.hiddenPosts) more.push(`From ${plural(st.hiddenAuthors.length, 'account', 'accounts')}. ${st.hiddenNow} on screen now.`);
+    if (st.hiddenMentions) more.push(`Plus ${plural(st.hiddenMentions, 'post that tags', 'posts that tag')} a bot.`);
+    renderTab(`${st.hiddenPosts === 1 ? 'post' : 'posts'} hidden on this tab`, more.join(' '), st.hiddenPosts);
   }
 
   async function saveSettings(patch) {
@@ -146,7 +190,13 @@
       const note = document.createElement('span');
       note.className = 'note muted';
       note.textContent = b.note;
-      who.append(a, note);
+      // Shown, and read with the choice, only while Always show locks the row.
+      const why = document.createElement('span');
+      why.className = 'note muted';
+      why.id = `bot-${b.handle}-why`;
+      why.hidden = true;
+      why.textContent = 'Locked to Show: it is in Always show.';
+      who.append(a, note, why);
       const sel = document.createElement('select');
       sel.id = `bot-${b.handle}`;
       sel.setAttribute('aria-label', `What to do with @${b.name}`);
@@ -169,20 +219,23 @@
     }
   }
 
-  // An Always-show entry wins over a bot's row, so the row is locked to Show.
+  // An Always show entry wins over a bot's row, so the row is locked to Show.
   // The section's summary line counts the rows, so it reads while folded.
   function renderBots(s, handles) {
     const modes = L.botModes(s, handles);
     const allow = L.parseAllowlist(s.allowlist);
     const n = { show: 0, hide: 0, mute: 0 };
     for (const b of L.BOTS) n[modes[b.handle]] += 1;
-    $('botsSum').textContent = L.BOT_MODES.map((m) => `${LABELS[m]} ${n[m]}`).join(' · ');
+    setText($('botsSum'), L.BOT_MODES.map((m) => `${LABELS[m]} ${n[m]}`).join(' · '));
     for (const b of L.BOTS) {
       const sel = $(`bot-${b.handle}`);
       if (!sel || document.activeElement === sel) continue;
       setChoice(sel, modes[b.handle]);
-      sel.disabled = allow.has(b.handle);
-      sel.title = sel.disabled ? 'In your Always-show list' : '';
+      const locked = allow.has(b.handle);
+      sel.disabled = locked;
+      setHidden($(`bot-${b.handle}-why`), !locked);
+      if (locked) sel.setAttribute('aria-describedby', `bot-${b.handle}-why`);
+      else sel.removeAttribute('aria-describedby');
     }
   }
 
@@ -266,14 +319,21 @@
   // Export and import live on the options page: a file picker opened from
   // the popup can close the popup before the file is read.
   $('files').addEventListener('click', () => chrome.runtime.openOptionsPage());
+  // aria-disabled, not disabled, while it refreshes: a disabled button drops
+  // keyboard focus. aria-disabled does not stop clicks, so the flag does.
+  let refreshing = false;
   $('refresh').addEventListener('click', async () => {
-    $('refresh').disabled = true;
-    $('refresh').textContent = 'Refreshing…';
+    if (refreshing) return;
+    refreshing = true;
+    const btn = $('refresh');
+    btn.setAttribute('aria-disabled', 'true');
+    btn.textContent = 'Refreshing…';
     try {
       await chrome.runtime.sendMessage({ type: 'xsh:refresh' });
     } finally {
-      $('refresh').disabled = false;
-      $('refresh').textContent = 'Refresh list now';
+      refreshing = false;
+      btn.removeAttribute('aria-disabled');
+      btn.textContent = 'Refresh list now';
       render();
     }
   });

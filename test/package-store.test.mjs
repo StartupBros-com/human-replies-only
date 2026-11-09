@@ -24,6 +24,9 @@ const LOADED = [
   'icons/icon-16.png',
   'icons/icon-32.png',
   'icons/icon-48.png',
+  // The popup header draws the vector icon so it stays sharp at 24px on any
+  // screen; the settings page and the manifest still use the PNGs.
+  'icons/icon.svg',
   'src/background.js',
   'src/content.js',
   'src/lib.js',
