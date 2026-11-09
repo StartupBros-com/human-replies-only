@@ -43,8 +43,15 @@ export function page(cells) {
 // With `job`, the adapter also hands that job to the content script and
 // collects what it reports (`done` resolves with the report), answers its
 // confirmJob with `confirm` and records the asks in `confirms`; `sightings`
-// collects noteSighting calls.
-export function runContent(html, { pathname = '/home', state = {}, job = null, confirm = true } = {}) {
+// collects noteSighting calls. A `job` may be a promise, for a worker that
+// answers late.
+//
+// With `labels`, the adapter can save and read labels as the extension's
+// does: `labels.stored` maps post ids to labels already saved, `labels.answer`
+// gives the worker's reply to a save (default: saved), `saves` records each
+// save and `labelChange(id, label)` stands in for a change in another tab.
+// With `present`, `present()` asks the tab what the worker's x.com check asks.
+export function runContent(html, { pathname = '/home', state = {}, job = null, confirm = true, labels = null, present = false } = {}) {
   const { window, document, MutationObserver } = parseHTML(html);
   const location = { pathname };
   let subscriber = null;
@@ -75,6 +82,25 @@ export function runContent(html, { pathname = '/home', state = {}, job = null, c
     noteSighting: (h) => sightings.push(h),
   };
   const confirms = [];
+  const saves = [];
+  let labelSub = null;
+  let presentFn = null;
+  if (labels) {
+    const stored = labels.stored || {};
+    adapter.saveLabel = (m) => {
+      saves.push(JSON.parse(JSON.stringify(m)));
+      return Promise.resolve(labels.answer ? labels.answer(m) : { ok: true, label: m.label });
+    };
+    adapter.getLabels = (ids) => Promise.resolve(Object.fromEntries(ids.map((id) => [id, stored[id] || null])));
+    adapter.subscribeLabels = (cb) => {
+      labelSub = cb;
+    };
+  }
+  if (present) {
+    adapter.answerPresent = (fn) => {
+      presentFn = fn;
+    };
+  }
   if (job) {
     adapter.getJob = () => Promise.resolve(job);
     adapter.reportJob = (r) => finish(JSON.parse(JSON.stringify(r)));
@@ -111,6 +137,10 @@ export function runContent(html, { pathname = '/home', state = {}, job = null, c
     sightings,
     confirms,
     done,
+    saves,
+    labelChange: (id, label) => labelSub(id, label),
+    present: () => presentFn(),
+    window,
   };
 }
 

@@ -6,9 +6,15 @@
 // X's own Mute item, then reports back, and the worker closes the tab. It never
 // calls X's API.
 //
+// Labels, when the user has turned them on (extension only): on a post's
+// own page, each post below it gets a small Slop / Not slop pair. A click
+// there is the only thing this script acts on in the user's own tabs, and
+// only a click the browser marks as the user's own.
+//
 // State comes from an adapter: the extension adapter below (chrome.storage,
 // filled by background.js), or globalThis.XSlopHideAdapter when the userscript
-// build supplies one. The userscript adapter has no jobs, so it only hides.
+// build supplies one. The userscript adapter has no jobs and no labels, so it
+// only hides.
 (function () {
   'use strict';
   const L = globalThis.XSlopHide;
@@ -29,11 +35,42 @@
   const hiddenAuthors = new Set();
   const hiddenMentions = new Set(); // distinct posts hidden for tagging a bot
 
+  // Labels (see the header). BAR marks the pair, its value the post id.
+  const BAR = 'data-xsh-bar';
+  let labeling = false;
+  let listed = new Set(); // the list itself, for the note beside the pair
+  let allowBox = new Set(); // Always show, as typed
+  let extraBox = new Set(); // Also hide, as typed
+  const labels = new Map(); // post id -> 'slop' | 'not_slop' | null, once read
+  const asked = new Set(); // post ids whose label was read or is being read
+  const toRead = new Set();
+  const notes = new Map(); // post id -> why the last click was not saved
+  // Ids of the posts above the one the page is about (the posts it replies
+  // to), for the page at ancestorsPath. Kept by id, since X reuses a post's
+  // nodes, and for as long as the page is open, since X unmounts posts
+  // scrolled far away: deep in the replies the page's post may be gone.
+  let ancestors = new Set();
+  let ancestorsPath = null;
+
   function injectStyle() {
     if (document.getElementById('xsh-style')) return;
     const st = document.createElement('style');
     st.id = 'xsh-style';
     st.textContent = `[${ATTR}]{display:none!important}`;
+    (document.head || document.documentElement).appendChild(st);
+  }
+
+  // The label bar's look, added only once labelling is turned on, so a page
+  // with labelling off gets nothing beyond the hide rule.
+  function injectBarStyle() {
+    if (document.getElementById('xsh-bar-style')) return;
+    const st = document.createElement('style');
+    st.id = 'xsh-bar-style';
+    st.textContent =
+      `[${BAR}]{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:2px 0 8px 56px;font:13px/1.3 system-ui,sans-serif;color:rgb(113,118,123)}` +
+      `[${BAR}] button{font:inherit;color:inherit;background:transparent;border:1px solid rgba(113,118,123,.6);border-radius:999px;padding:2px 10px;cursor:pointer}` +
+      `[${BAR}] button[aria-pressed="true"][data-xsh-label="slop"]{color:#fff;background:rgb(244,33,46);border-color:rgb(244,33,46)}` +
+      `[${BAR}] button[aria-pressed="true"][data-xsh-label="not_slop"]{color:#fff;background:rgb(0,150,100);border-color:rgb(0,150,100)}`;
     (document.head || document.documentElement).appendChild(st);
   }
 
@@ -72,9 +109,219 @@
     }
   }
 
+  // ---------------------------------------------------------------- labels
+
+  function ancestorIds() {
+    if (ancestorsPath !== location.pathname) {
+      ancestorsPath = location.pathname;
+      ancestors = new Set();
+    }
+    return ancestors;
+  }
+
+  // While the page's post is mounted, remember every post above it in the
+  // document. Returns true when that adds one, which may already have a pair.
+  // A post above it that is first mounted after the page's post has been
+  // unmounted (a long chain scrolled far up) is not caught.
+  function noteAncestors(focal) {
+    const known = ancestorIds();
+    const above = [];
+    for (const art of document.querySelectorAll(ARTICLE)) {
+      const url = postKey(art);
+      const post = url && L.statusOf(url);
+      if (!post) continue;
+      if (post.id === focal.id) {
+        let grew = false;
+        for (const id of above) {
+          if (!known.has(id)) {
+            known.add(id);
+            grew = true;
+          }
+        }
+        return grew;
+      }
+      above.push(post.id);
+    }
+    return false;
+  }
+
+  // The post a pair would label, or null: on a post's own page (not its
+  // quotes, likes or a photo), a post below the page's post with its own link
+  // and author. The page's post and the posts above it get none.
+  function labelTarget(article) {
+    const focal = L.statusPageOf(location.pathname);
+    if (!focal) return null;
+    const url = postKey(article);
+    const post = url && L.statusOf(url);
+    if (!post || post.id === focal.id || ancestorIds().has(post.id)) return null;
+    const author = L.authorHandleOf(article);
+    return author ? { id: post.id, url, author } : null;
+  }
+
+  // The post's own text (not a quoted post's), with emoji, which X draws as
+  // images, read from their alt text.
+  function postText(article) {
+    const el = [...article.querySelectorAll('[data-testid="tweetText"]')].find((t) => !L.insideQuoteCard(t, article));
+    if (!el) return '';
+    const parts = [];
+    const walk = (n) => {
+      for (const c of n.childNodes) {
+        if (c.nodeType === 3) parts.push(c.data);
+        else if (c.nodeType === 1 && c.tagName === 'IMG') parts.push(c.getAttribute('alt') || '');
+        else if (c.nodeType === 1) walk(c);
+      }
+    };
+    walk(el);
+    return parts.join('').trim();
+  }
+
+  function barOf(article) {
+    for (const c of article.children) if (c.hasAttribute(BAR)) return c;
+    return null;
+  }
+
+  function makeBar() {
+    const bar = document.createElement('div');
+    bar.setAttribute(BAR, '');
+    bar.setAttribute('role', 'group');
+    bar.setAttribute('aria-label', 'x-slop-hide label');
+    for (const [label, text] of [
+      ['slop', 'Slop'],
+      ['not_slop', 'Not slop'],
+    ]) {
+      const b = document.createElement('button');
+      b.setAttribute('type', 'button');
+      b.setAttribute('data-xsh-label', label);
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = text;
+      bar.appendChild(b);
+    }
+    const note = document.createElement('span');
+    note.setAttribute('data-xsh-note', '');
+    bar.appendChild(note);
+    // X opens a post on a click anywhere in it, and has keyboard shortcuts:
+    // nothing done in the pair reaches its handlers.
+    for (const type of ['click', 'auxclick', 'dblclick', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'touchend', 'keydown', 'keyup']) {
+      bar.addEventListener(type, (e) => onBarEvent(e, bar));
+    }
+    return bar;
+  }
+
+  // Why an account shows despite a Slop label, or what already covers it.
+  function boxNote(author) {
+    if (allowBox.has(author)) return 'in Always show';
+    if (extraBox.has(author)) return 'in Also hide';
+    if (listed.has(author)) return 'on the list';
+    return '';
+  }
+
+  // Bring a pair up to date. Writes only what differs, so its own mutations
+  // settle on the next pass.
+  function renderBar(bar, id, author) {
+    const cur = labels.get(id) || null;
+    for (const b of bar.querySelectorAll('[data-xsh-label]')) {
+      const v = String(b.getAttribute('data-xsh-label') === cur);
+      if (b.getAttribute('aria-pressed') !== v) b.setAttribute('aria-pressed', v);
+    }
+    const note = bar.querySelector('[data-xsh-note]');
+    const text = notes.get(id) || boxNote(author);
+    if (note && note.textContent !== text) note.textContent = text;
+  }
+
+  // Add, update or remove the pair on one post. X reuses a post's nodes for
+  // another post, so the pair is re-keyed whenever the post's link changes.
+  function syncBar(article) {
+    if (!labeling) return;
+    const t = labelTarget(article);
+    let bar = barOf(article);
+    if (!t) {
+      if (bar) bar.remove();
+      return;
+    }
+    if (!bar) {
+      bar = makeBar();
+      article.appendChild(bar);
+    }
+    if (bar.getAttribute(BAR) !== t.id) bar.setAttribute(BAR, t.id);
+    if (bar.getAttribute('data-xsh-author') !== t.author) bar.setAttribute('data-xsh-author', t.author);
+    renderBar(bar, t.id, t.author);
+    if (!asked.has(t.id)) readLabel(t.id);
+  }
+
+  // Bring the pairs on these posts up to date, or on every post when a post
+  // above the page's post has just been found: it may already have a pair.
+  function syncBars(arts) {
+    if (!labeling) return;
+    const focal = L.statusPageOf(location.pathname);
+    const grew = focal ? noteAncestors(focal) : false;
+    for (const art of grew ? document.querySelectorAll(ARTICLE) : arts) syncBar(art);
+  }
+
+  function renderId(id) {
+    for (const bar of document.querySelectorAll(`[${BAR}]`)) {
+      if (bar.getAttribute(BAR) === id) renderBar(bar, id, bar.getAttribute('data-xsh-author') || '');
+    }
+  }
+
+  // Read stored labels for posts as their pairs appear, a batch at a time.
+  function readLabel(id) {
+    asked.add(id);
+    toRead.add(id);
+    if (toRead.size > 1) return;
+    setTimeout(() => {
+      const ids = [...toRead];
+      toRead.clear();
+      Promise.resolve(adapter.getLabels ? adapter.getLabels(ids) : {})
+        .then((got) => {
+          for (const id of ids) if (!labels.has(id)) labels.set(id, (got && got[id]) || null);
+          for (const id of ids) renderId(id);
+        })
+        .catch(() => {});
+    }, 0);
+  }
+
+  function onBarEvent(e, bar) {
+    e.stopPropagation();
+    if (e.type !== 'click') return;
+    e.preventDefault();
+    // A click made by the page's own script, not the user: ignored.
+    if (e.isTrusted === false) return;
+    const btn = e.target && e.target.closest ? e.target.closest('[data-xsh-label]') : null;
+    const article = bar.closest(ARTICLE);
+    if (btn && article) saveLabel(article, btn.getAttribute('data-xsh-label'));
+  }
+
+  // Clicking the label a post already has clears it.
+  async function saveLabel(article, which) {
+    const t = labelTarget(article);
+    if (!t || !labeling) return;
+    const label = labels.get(t.id) === which ? null : which;
+    let res;
+    try {
+      res = await adapter.saveLabel({ label, handle: t.author, url: t.url, page: location.pathname, text: postText(article) });
+    } catch (e) {
+      res = { ok: false, reason: String((e && e.message) || e) };
+    }
+    if (res && res.ok) {
+      notes.delete(t.id);
+      labels.set(t.id, label);
+    } else {
+      notes.set(t.id, `not saved: ${(res && res.reason) || 'no answer'}`);
+    }
+    renderId(t.id);
+  }
+
+  function onLabelChange(id, label) {
+    labels.set(id, label || null);
+    asked.add(id);
+    renderId(id);
+  }
+
   function rescanAll() {
     const owner = L.pageOwner(location.pathname);
-    for (const art of document.querySelectorAll(ARTICLE)) evaluate(art, owner);
+    const arts = document.querySelectorAll(ARTICLE);
+    for (const art of arts) evaluate(art, owner);
+    syncBars(arts);
     // Cells hidden earlier whose post has since been replaced or unlisted.
     for (const cell of document.querySelectorAll(`[${ATTR}]`)) {
       const art = cell.matches(ARTICLE) ? cell : cell.querySelector(ARTICLE);
@@ -132,16 +379,29 @@
       else for (const art of articles) touched.add(art);
     }
     // A node added then removed in the same batch must not affect live state or stats.
-    for (const art of touched) if (document.contains(art)) evaluate(art, owner);
+    const live = [];
+    for (const art of touched) {
+      if (!document.contains(art)) continue;
+      evaluate(art, owner);
+      live.push(art);
+    }
+    syncBars(live);
   }
 
   function applyState(s) {
     const handles = (s.list && s.list.handles) || [];
+    const st = s.settings || {};
     list = L.effectiveList(handles, s.settings);
     allow = L.effectiveAllow(s.settings);
     mentions = L.mentionTargets(s.settings, handles);
-    paused = !!(s.settings && s.settings.paused);
-    muting = !!(s.settings && s.settings.muteEnabled);
+    paused = !!st.paused;
+    muting = !!st.muteEnabled;
+    listed = new Set(handles);
+    allowBox = L.parseAllowlist(st.allowlist);
+    extraBox = L.parseAllowlist(st.extraList);
+    labeling = !!(st.labeling === true && adapter.saveLabel);
+    if (labeling) injectBarStyle();
+    else for (const bar of document.querySelectorAll(`[${BAR}]`)) bar.remove();
     rescanAll();
   }
 
@@ -309,6 +569,43 @@
         chrome.runtime.sendMessage({ type: 'xsh:job-go', id: job.id }).then((ok) => ok === true, () => false),
       reportJob: (result) => chrome.runtime.sendMessage({ type: 'xsh:job-result', result }).catch(() => {}),
       noteSighting: (handle) => chrome.runtime.sendMessage({ type: 'xsh:sighting', handle }).catch(() => {}),
+      // Asked by the worker before a mute visit at 50 or 100 a day: is an
+      // x.com tab of the user's own open? fn answers no in a job's tab.
+      answerPresent(fn) {
+        chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+          if (!msg || msg.type !== 'xsh:present') return false;
+          Promise.resolve()
+            .then(fn)
+            .then((v) => sendResponse(v === true), () => sendResponse(false));
+          return true;
+        });
+      },
+      // The worker checks and stores a label; it answers { ok } or { ok: false, reason }.
+      saveLabel: (m) =>
+        chrome.runtime
+          .sendMessage(Object.assign({}, m, { type: 'xsh:label' }))
+          .catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+      getLabels(ids) {
+        const keys = ids.map((id) => L.LABEL_PREFIX + id);
+        return chrome.storage.local.get(keys).then((o) => {
+          const out = {};
+          for (const id of ids) {
+            const r = o[L.LABEL_PREFIX + id];
+            out[id] = r && L.LABELS.includes(r.label) ? r.label : null;
+          }
+          return out;
+        });
+      },
+      subscribeLabels(cb) {
+        chrome.storage.onChanged.addListener((changes, area) => {
+          if (area !== 'local') return;
+          for (const k of Object.keys(changes)) {
+            if (!k.startsWith(L.LABEL_PREFIX)) continue;
+            const v = changes[k].newValue;
+            cb(k.slice(L.LABEL_PREFIX.length), v && L.LABELS.includes(v.label) ? v.label : null);
+          }
+        });
+      },
     };
   }
 
@@ -325,9 +622,16 @@
     attributeFilter: ['href'],
   });
   adapter.subscribe(applyState);
+  if (adapter.subscribeLabels) adapter.subscribeLabels(onLabelChange);
   if (adapter.serveStats) adapter.serveStats(stats);
   adapter.load().then(applyState);
-  if (adapter.getJob && adapter.reportJob) adapter.getJob().then((job) => job && runJob(job));
+  // A tab the worker opened for a job gets the job; every other tab gets null.
+  let jobAsk = Promise.resolve(null);
+  if (adapter.getJob && adapter.reportJob) {
+    jobAsk = Promise.resolve(adapter.getJob()).catch(() => null);
+    jobAsk.then((job) => job && runJob(job));
+  }
+  if (adapter.answerPresent) adapter.answerPresent(() => jobAsk.then((job) => !job, () => false));
 
   // Exposed for the userscript adapter and the live test harness only.
   globalThis.XSlopHideContent = { stats, rescanAll, applyState, runJob };

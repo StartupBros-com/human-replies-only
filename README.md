@@ -7,13 +7,14 @@ x-slop-hide hides posts on x.com whose author is on
 accounts, and can also mute those accounts on your X account. You can add
 accounts of your own, choose Show, Hide or Mute for each of six answer bots
 such as @grok and @AskPerplexity, and hide posts that tag one of those bots.
+In the extension you can also [label replies](#labels) Slop or Not slop.
 
 Hiding works on the page in your desktop browser, in this browser profile
 only, and the Pause switch shows the posts again. Muting is off until you turn
-it on in the extension's popup. It then mutes up to 25 accounts a day by
-clicking X's own Mute on x.com, so the mutes apply in the X app too. It never
-blocks anyone, never unmutes, and does not use the X API. It is free and
-MIT-licensed.
+it on in the extension's popup. It then mutes up to 25 accounts a day (or 50 or
+100, which run only while you have x.com open) by clicking X's own Mute on
+x.com, so the mutes apply in the X app too. It never blocks anyone, never
+unmutes, and does not use the X API. It is free and MIT-licensed.
 
 Muting is automation of the X website, which X's rules say "may result in the
 permanent suspension of your account". Read [Muting](#muting) before you turn
@@ -47,7 +48,7 @@ Mute and Block, act on your X account.
 |---|---|---|---|---|
 | Changes your X account | No | Yes: it is X's Mute | Yes | Yes |
 | Applies in the X app | No | Yes | Yes | Yes |
-| Covering a list of hundreds | Install once; the list refreshes itself | Up to 25 accounts a day, so the 773 listed on 2026-11-08 take about a month | Mute each account from its post or profile | Block each account from its post or profile |
+| Covering a list of hundreds | Install once; the list refreshes itself | 25 accounts a day by default, so the 773 listed on 2026-11-08 take about a month; 8 days at 100 a day | Mute each account from its post or profile | Block each account from its post or profile |
 | The account can find out | No | No, as with Mute on X | No: "Muted accounts will not know that you've muted them" | Yes: if it visits your profile, "they will see they have been blocked" |
 | Undo | Pause, or add the handle to Always show | Unmute each account on X; x-slop-hide never unmutes | Unmute each account | Unblock each account |
 
@@ -102,10 +103,13 @@ whenever the tab comes back into view. The userscript does not mute.
 | Hide posts that tag a bot | Under **Bots that answer when tagged**, tick **Also hide posts that tag a bot set to Hide or Mute** | **Hide / show posts that tag a hidden bot** |
 | Fetch the list now | **Refresh list now** | **Refresh list now** |
 | Mute listed accounts on your X account | Tick **Mute listed accounts on X** (see [Muting](#muting)) | Not available |
+| Mute more accounts a day | Pick 50 or 100 under **Mutes a day** (see [How many a day](#how-many-a-day)) | Not available |
+| Label replies Slop or Not slop | Under **Label replies**, tick **Show Slop and Not slop buttons under replies on x.com** (see [Labels](#labels)) | Not available |
 
-**Bots that answer when tagged** and **Your accounts** start folded; click a
-heading to open it. A folded heading shows its counts, such as "Show 5 · Hide
-here 1 · Mute on X 0" or "Always show 2 · Also hide 0".
+**Bots that answer when tagged**, **Your accounts** and **Label replies** start
+folded; click a heading to open it. A folded heading shows its counts, such as
+"Show 5 · Hide here 1 · Mute on X 0", "Always show 2 · Also hide 0" or "On ·
+12 saved".
 
 **Save** saves both boxes at once. On an x.com tab, the popup also counts what
 it hid there: "This tab: N posts from M accounts hidden (K on screen now)", with
@@ -227,8 +231,9 @@ and its tab closed. So one more mute can land just after you untick.
   closes the tab.
 - One tab at a time. The next one opens at the first once-a-minute check that
   comes 1 to 3 minutes (picked at random) after the last tab closed, so about
-  1 to 4 minutes later. At most 25 mutes and 50 profile visits a day. Days are
-  UTC days.
+  1 to 4 minutes later. At most 25 mutes and 50 profile visits a day, or the
+  number you pick under **Mutes a day** and twice that many visits (see
+  [How many a day](#how-many-a-day)). Days are UTC days.
 - After every 5 mutes, and when the day's caps are reached or nothing is left
   to visit, it opens `x.com/settings/muted/all` the same way and checks that
   each new mute is listed there.
@@ -245,6 +250,32 @@ Always show; an account you follow; or someone whose post was hidden only for
 tagging a bot. When X's menu offers "Unfollow @handle", x-slop-hide
 records that you follow the account and moves on. An account that is already
 muted is recorded without a click. x-slop-hide never unmutes and never blocks.
+
+### How many a day
+
+Under **Mutes a day** the popup offers 25, 50 and 100.
+
+- 25 is the default. It runs whenever the browser is open with the extension
+  loaded, as in earlier versions.
+- At 50 or 100, a mute visit starts only while you have x.com open in a tab of
+  your own. Before each visit, the background worker asks your open tabs, and
+  goes ahead only if x-slop-hide's script on an x.com page answers within
+  1.5 s. The tabs it opens for its own visits never count, nor do tabs the
+  browser has discarded to save memory. Without such a tab it waits; a check of
+  `x.com/settings/muted/all` that is due still runs.
+- The 1 to 3 minute gap between visits is the same at every setting, and visits
+  stay capped at twice the mute number. So 100 mutes need about 2 to 7 hours of
+  x.com being open.
+- No setting goes above 100, and a stored value other than 25, 50 or 100 counts
+  as 25. Hiding already covers this browser, so muting only adds the X apps;
+  at 100 a day, the 773 accounts listed on 2026-11-08 take 8 days. The popup
+  shows that figure for the accounts it has left to mute.
+
+A lower number means less scripted clicking on your account each day. No
+number makes it allowed: X's rules forbid scripting the X website at any rate
+(see [Before you turn it on](#before-you-turn-it-on)). X publishes no limit for
+mutes, so 50 and 100 are not known to be safe; the cap and the open-tab rule
+are their only limits.
 
 ### When it stops for the day
 
@@ -275,7 +306,7 @@ lists each reason.
 ### What it records
 
 The popup shows today's counts and the totals in three lines, with a bar
-between the first two that fills toward the 25 mutes:
+between the first two that fills toward the day's number of mutes (25 here):
 
 ```
 Muting as @you
@@ -288,6 +319,53 @@ Skipped means no post, or 2 failed visits.
 The record is `xsh:mutes` in the extension's local storage: one entry per
 account visited, with its status, the time, X's notice text, and whether a
 check found it on your muted list.
+
+## Labels
+
+Labels are in the extension only, and off until you tick **Show Slop and Not
+slop buttons under replies on x.com** under **Label replies** in the popup.
+Then, on a post's own page (`x.com/handle/status/...`), each post below it
+gets a **Slop** and a **Not slop** button under it: the replies, and any other
+posts X lists after them. The post the page is about and the posts above it,
+which it replies to, get none, and nothing appears on its quotes or likes
+pages, the home timeline, profiles or search.
+
+- **Slop** saves the label and adds the account to **Also hide these
+  accounts**, so its posts hide at once and, with muting on, it is muted too
+  (a bot follows its row, as under [Bots](#bots)).
+- **Not slop** saves the label and adds the account to **Always show these
+  accounts**, so it is never hidden or muted.
+- An account already in that box is not added again. Next to the buttons, the
+  pair says when the account is "on the list", "in Also hide" or "in Always
+  show". An account in both boxes is shown: Always show wins.
+- Clicking the other button changes the label; clicking the pressed one again
+  clears it. Clearing a label, or deleting them all, leaves both boxes as they
+  are. To take an account out of a box, edit it under **Your accounts**.
+- A hidden reply's buttons are hidden with it. To label one, tick **Pause
+  hiding** first.
+- Clicking a button does not open the post, and the buttons ignore clicks made
+  by a page's own script.
+
+Each reply has one label record, keyed by its post id; the latest click wins.
+A record holds:
+
+| Field | What it holds |
+|---|---|
+| `at` | When you clicked, in milliseconds since 1970 |
+| `label` | `slop` or `not_slop` |
+| `handle` | The reply's author, in lower case |
+| `url` | The reply's link, `https://x.com/handle/status/id` |
+| `text` | The first 1,000 characters of the reply's own text (not a post it quotes), with its emoji |
+| `page` | The post page it was labelled on, or `null` |
+| `list` | The list's host, such as `clankwall.vogel.dev`, when the list had the account; otherwise `null` |
+| `extra`, `allow` | Whether the account was in Also hide or Always show before this click |
+| `hidden` | Whether x-slop-hide hid the account's posts on that page then, leaving out Pause and tag hiding |
+
+**Export labels** saves them all as a JSON Lines file, one record per line,
+oldest first, named `x-slop-hide-labels-YYYY-MM-DD.jsonl`. **Delete all
+labels** deletes them on its second click. Up to 2,000 labels are kept; past
+that, a new one is refused ("2000 labels saved: export and delete them to add
+more") while saved ones can still be changed.
 
 ## Whose list is it?
 
@@ -313,14 +391,20 @@ and the popup shows why. A broken or truncated feed cannot empty your filter.
 
 ## Permissions and privacy
 
-- `storage` holds the list, your settings and the mute record. `alarms`
-  schedules the list refresh, muting's once-a-minute check, and the 90 s limit
-  on a visit. Opening and closing its own tabs needs no further permission.
+- `storage` holds the list, your settings, the mute record and your labels.
+  `alarms` schedules the list refresh, muting's once-a-minute check, and the
+  90 s limit on a visit. Opening and closing its own tabs needs no further permission.
 - The content script runs on x.com, twitter.com and their `mobile.` hosts. In
   your own tabs it makes no network requests and clicks nothing: it reads the
   page, adds one style rule, and sets an attribute on the cells it hides. While
   muting is on, it also tells the background worker which listed authors it
-  hid, so they are visited first.
+  hid, so they are visited first. With labelling on, it adds a second style
+  rule and the Slop / Not slop buttons, and hands each label you click, with
+  the reply's text, to the background worker to store.
+- At 50 or 100 mutes a day, before each visit the worker lists your open tabs
+  and asks each one whether it is an x.com tab of yours. It uses only each
+  tab's id and whether the browser has discarded it, never its address or
+  title, and only x-slop-hide's script on an x.com page answers.
 - It clicks only in a tab the background worker opened for a visit. The worker
   hands that tab its job once, so a reload of the tab does not click again.
 - The one network request the extension makes itself is the feed fetch, from
@@ -331,7 +415,13 @@ and the popup shows why. A broken or truncated feed cannot empty your filter.
 - Muting sends no request of its own. The mute is the request x.com's page
   sends when its Mute item is clicked, with your x.com login, as when you click
   it yourself.
+- Labels, including the text of the replies you label, are stored only in this
+  browser profile's extension storage (an `xsh:label:<post id>` key for each,
+  and a count, `xsh:labelCount`). They leave it only when you click **Export
+  labels** and save the file, and removing the extension deletes them.
 - Nothing else is collected or sent. There is no analytics.
+- Because labels store other people's replies, a web store listing of
+  x-slop-hide will need a privacy policy. It is not in a web store yet.
 - The feed URL is a setting (`feedUrl` in `xsh:settings`) with no UI yet. A
   feed on another host also needs that host added to `host_permissions` in
   `manifest.json` (unless it serves CORS headers), or, for the userscript, an
@@ -443,6 +533,9 @@ reads (see [Limits](#limits)). Please open an issue.
   x-slop-hide is muting.
 - Muting runs only while the browser is open with the extension loaded and
   logged in to x.com. It picks up again the next time the browser runs.
+- At 50 or 100 a day, any x.com tab of yours counts as "x.com open", including
+  one left open in the background or in another window. The check learns that
+  such a tab is open, not that you are looking at it.
 - The clicks are script events (their `isTrusted` is false). X's menu accepted
   them on 2026-11-06, but X can change its menu or how it treats such clicks at
   any time. A changed menu stops muting for the day; x-slop-hide does not
@@ -481,8 +574,10 @@ No. x-slop-hide never unmutes. Unmute it on X.
 ### How do I remove it?
 
 Remove the extension in `chrome://extensions`, or delete the script in your
-userscript manager. Hiding leaves nothing to undo. The mutes x-slop-hide made
-stay on your X account; unmute them on X at `x.com/settings/muted/all`. To see
+userscript manager. Hiding leaves nothing to undo. Removing the extension
+deletes your labels, so export them first if you want them. The mutes
+x-slop-hide made stay on your X account; unmute them on X at
+`x.com/settings/muted/all`. To see
 which accounts it muted, read the record before removing the extension: click
 **service worker** on its card in `chrome://extensions` and, in the console
 that opens, run `chrome.storage.local.get('xsh:mutes').then(console.log)`.
@@ -501,16 +596,19 @@ pnpm run check       # userscript is current + parses + tests (what CI runs)
   the bot rows and tag hiding, and muting's rules (which menu item to click,
   the visit order, the daily caps and the mute record).
 - `src/content.js`: the content script. It watches the page and marks the
-  cells to hide. In a tab the background worker opened for a visit, it runs
+  cells to hide, draws the Slop / Not slop buttons while labelling is on, and
+  tells the worker, when asked, whether its tab is one the worker opened. In a
+  tab the background worker opened for a visit, it runs
   that one job (mute the profile's account, or read `settings/muted/all`) and
   reports the result.
 - `src/background.js`: the service worker. It fetches the feed and stores it,
   and, while muting is on, runs the visits: a 1-minute alarm, one background
-  tab at a time, and a 90 s limit per tab.
+  tab at a time, and a 90 s limit per tab. It also stores the labels.
 - `src/popup.*`: the popup.
 - `src/userscript-adapter.js` and `scripts/build-userscript.mjs`: the
   userscript build, which concatenates `lib.js`, the adapter and `content.js`.
-  The adapter has no visit jobs, so the userscript hides but never mutes.
+  The adapter has no visit jobs and no label storage, so the userscript hides
+  but never mutes or labels.
   A release bumps `version` in `manifest.json` (and `package.json`), because
   userscript managers update only when it goes up.
 
@@ -526,8 +624,9 @@ author's post is left showing.
 ## Testing
 
 Hiding was checked on real x.com on 2026-11-03 (four pages, 0 mismatches), and
-versions 0.2.0 to 0.4.0 ran in headless Chromium against fixture pages. Muting
-has run in Brave on the maintainer's own account since 2026-11-07.
+versions 0.2.0 to 0.5.0 ran in headless Chromium against fixture pages. Muting
+has run in Brave on the maintainer's own account since 2026-11-07; 0.5.0's
+labels and daily setting have not run in Brave yet.
 [docs/TESTING.md](docs/TESTING.md) has each run, its method and results, and
 what has not been tested.
 

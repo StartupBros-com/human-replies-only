@@ -128,6 +128,83 @@ runner's first wait now accepts a bot row hidden in a closed fold. Later on
 2026-11-08 the maintainer reloaded 0.4.1 in Brave and reported that the popup
 looked right. A bot row set to **Mute on X** has not run in Brave yet.
 
+Version 0.5.0 ran the same way on 2026-11-09 (UTC) and passed 62 of 62 checks.
+The local server also answered for the list's host, so the install refresh
+read a 3-account fixture list and nothing reached the real one. The checks:
+
+- Labels are off on a new install: the popup said "Off · 0 saved" with Export
+  and Delete disabled, and a post page had no Slop / Not slop pair. Once the
+  switch was ticked, each reply got a pair, and the post the page is about and
+  the post above it, which it replies to, got none. The pair of a reply hidden
+  by the list was hidden with it.
+- **Slop** saved a record with every documented field and added the account
+  to Also hide, which hid the reply at once. **Not slop** added its account to
+  Always show. Clicking a pressed button again cleared the label and left the
+  box as it was.
+- A click sent by the page's own script saved nothing. Enter on a focused
+  button saved, with the reply's own text and not the quoted post's. None of
+  the pair's click, pointer, mouse or key events reached the page's own
+  document or post listeners (a capture-phase listener saw 5 clicks happen),
+  and the page did not navigate.
+- With hiding paused, the listed reply showed with its pair, and its record
+  named the list's host (`clankwall.vogel.dev`) and said `hidden: true`.
+- When the page reused a reply's element for another post, as X does when it
+  scrolls, the pair moved to the new post, unpressed and not doubled. The home
+  timeline, a profile and the post's quotes page had no pairs.
+- The popup said "On · 3 saved". **Export** downloaded
+  `x-slop-hide-labels-2026-11-09.jsonl`: 3 records, oldest first, each with
+  exactly the documented fields. **Delete** asked "Click again to delete 3
+  labels"; the second click deleted the 3 labels and the count, left both boxes
+  as they were, and the open page dropped its pressed buttons. Unticking the
+  switch removed every pair.
+- The daily mute setting started at 25. Picking 100 saved it, and the popup
+  said why nothing goes above 100 and that the 3 accounts left take 1 day.
+- Without the "tabs" permission, the worker listed every tab but saw an
+  address and title only for its own popup page, never for the x.com tab. Its
+  check for an x.com tab said no with none open, yes with the user's
+  `x.com/home` tab open, no when that tab was counted as a visit tab or
+  discarded by the browser, and no once it was closed.
+- At 100 with no x.com tab of the user's, a tick started no visit. With the
+  user's tab open, the 1-minute alarm started a visit 58 s later, in a
+  background tab, which clicked Mute once. A due check of the muted list still
+  ran with no x.com tab and confirmed that mute.
+- At 25, a tick started a visit with no x.com tab open. The visit's own tab did
+  not count as the user's: the check said no, and the tab itself answered no.
+  That visit waited 20 s for a late ⋯ button and muted the second account.
+  Turning muting off cleared the alarm. Nothing threw an uncaught error.
+
+The runner took three shortcuts: it turned muting on by writing the setting to
+storage, ran most ticks by calling the function the worker's alarm calls (one
+visit started from the real alarm), and skipped the wait between visits
+through the worker's queue.
+
+Four earlier runs that day failed. Two could not save the export download,
+which was the runner's download folder. One found a defect: the worker refused
+**Delete** from the popup page opened in a tab, because it refused every
+sender in a tab. It now accepts **Delete** only from a page at the extension's
+own address, and a wiring test covers the popup opened in a tab. The fourth
+asked for the tab list before any x.com tab was open; that check now runs with
+one open.
+
+A fifth run passed, and a review of the branch after it found two more
+defects. The worker asked for an x.com tab from inside its own queue, so a tab
+that had just loaded, whose answer waits on its own question to the worker,
+could not answer within the 1.5 s timeout and counted as no tab; the worker now
+asks between two passes of its queue. And the pairs also appeared on the posts
+above the page's post and on its quotes, likes and photo pages; they now appear
+only below the post, on its own page. Wiring and DOM tests cover both, and the
+run above adds a post above the page's post and a quotes page to the fixture.
+The first run after those fixes passed all it ran but skipped the
+background-tab check, because the visit had ended before the runner read its
+tab; the runner now reads the tab while the visit runs and fails if it cannot.
+
+Not tested: real x.com's own handlers (the fixture page has plain listeners),
+Brave, whether 50 or 100 mutes a day is safe for an account, and the
+userscript, whose missing pair is covered only by the unit tests. Nor whether
+x.com keeps its posts in page order, which the check for posts above the
+page's post relies on. A post above the page's post that first appears after
+x.com has unmounted the page's post (a long chain scrolled far up) gets a pair.
+
 ## In daily use
 
 Since 2026-11-07 (UTC) the extension has run in Brave on Windows, on the

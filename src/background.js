@@ -10,6 +10,8 @@ const ALARM = 'xsh-refresh';
 const MUTE_ALARM = 'xsh-mute';
 const JOB_ALARM = 'xsh-job-timeout';
 const JOB_KEY = 'xsh:job'; // chrome.storage.session: the one job in flight
+const JOB_TABS_KEY = 'xsh:jobTabs'; // chrome.storage.session: tabs opened for jobs
+const PRESENT_TIMEOUT_MS = 1500;
 
 async function settings() {
   const o = await chrome.storage.local.get(K.settings);
@@ -81,10 +83,74 @@ function gapMs() {
   return Math.round((lo + Math.random() * (hi - lo)) * 60000);
 }
 
+// Job tabs still open, newest last, so the x.com check below never counts
+// one. An id leaves the list when its tab closes; one whose close failed
+// stays, which is when the check needs it. At most 50 are kept.
+const jobTabs = async () => (await chrome.storage.session.get(JOB_TABS_KEY))[JOB_TABS_KEY] || [];
+async function noteJobTab(id) {
+  const ids = (await jobTabs()).filter((t) => t !== id);
+  ids.push(id);
+  await chrome.storage.session.set({ [JOB_TABS_KEY]: ids.slice(-50) });
+}
+async function forgetJobTab(id) {
+  const ids = await jobTabs();
+  if (!ids.includes(id)) return;
+  const rest = ids.filter((t) => t !== id);
+  if (rest.length) await chrome.storage.session.set({ [JOB_TABS_KEY]: rest });
+  else await chrome.storage.session.remove(JOB_TABS_KEY);
+}
+
+// One tab's answer to "is this an x.com tab of the user's own?": true only
+// from an x-slop-hide content script that was not given a job. A tab with
+// no content script (any other site) rejects, as does one slower than
+// PRESENT_TIMEOUT_MS.
+function askTab(tabId) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timeout')), PRESENT_TIMEOUT_MS);
+    Promise.resolve()
+      .then(() => chrome.tabs.sendMessage(tabId, { type: 'xsh:present' }))
+      .then(
+        (v) => {
+          clearTimeout(timer);
+          if (v === true) resolve(true);
+          else reject(new Error('not a user tab'));
+        },
+        (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      );
+  });
+}
+
+// Whether the user has an x.com tab of their own open: what a daily cap
+// above 25 needs before each mute visit. Needs no permission: without
+// "tabs", tabs.query returns tabs without their URLs, so every tab is asked
+// except discarded ones and the ones opened for jobs.
+async function userHasXOpen() {
+  const skip = new Set(await jobTabs());
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({});
+  } catch (e) {
+    return false;
+  }
+  const asks = (tabs || [])
+    .filter((t) => t && Number.isInteger(t.id) && t.id >= 0 && !t.discarded && !skip.has(t.id))
+    .map((t) => askTab(t.id));
+  if (!asks.length) return false;
+  try {
+    return await Promise.any(asks);
+  } catch (e) {
+    return false;
+  }
+}
+
 // Open one job's tab in the background. The tab is never made active.
 async function startJob(kind, handle, account, now) {
   const url = kind === 'mute' ? `https://x.com/${handle}` : 'https://x.com/settings/muted/all';
   const tab = await chrome.tabs.create({ url, active: false });
+  await noteJobTab(tab.id);
   const job = {
     id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
     kind,
@@ -116,7 +182,17 @@ async function stillWanted(job) {
 async function dropJob(job) {
   await clearJob();
   chrome.alarms.clear(JOB_ALARM);
-  await chrome.tabs.remove(job.tabId).catch(() => {});
+  await closeJobTab(job.tabId);
+}
+
+// Close a job's tab. Its id leaves the job-tab list only once the close
+// succeeded; a tab that stayed open keeps being skipped by the x.com check.
+async function closeJobTab(id) {
+  const closed = await chrome.tabs.remove(id).then(
+    () => true,
+    () => false,
+  );
+  if (closed) await forgetJobTab(id);
 }
 
 // Fold a job's result into the record, close its tab and set the next visit.
@@ -135,12 +211,33 @@ async function finishJob(job, result) {
   await saveMutes(rec);
   await clearJob(); // before closing, so onRemoved does not see this job
   chrome.alarms.clear(JOB_ALARM);
-  await chrome.tabs.remove(job.tabId).catch(() => {});
+  await closeJobTab(job.tabId);
 }
 
-// One step of the mute loop, run by the alarm once a minute: finish a job
-// that ran out of time, or start the next one if today's caps allow.
-async function tick() {
+// What tickWith returns when a mute visit is due at 50 or 100 a day and the
+// tabs have not been asked yet.
+const ASK_TABS = 'ask-tabs';
+
+// One step of the mute loop, run by the alarm once a minute (runTick): finish
+// a job that ran out of time, or start the next one if today's caps allow.
+// Takes no argument, because serial() passes the previous step's result.
+function tick() {
+  return tickWith(null);
+}
+
+// The alarm's step. At 50 or 100 a day a mute visit also needs an x.com tab
+// of the user's own open, and the tabs are asked outside the queue: a tab
+// that has just loaded answers only once the worker has answered its
+// xsh:job question, which waits in the queue behind any step running there.
+async function runTick() {
+  if ((await serial(tick)) !== ASK_TABS) return;
+  const open = await userHasXOpen();
+  await serial(() => tickWith(open));
+}
+
+// xOpen is null until the tabs are asked, then whether the user has an x.com
+// tab open. A check of settings/muted/all runs either way.
+async function tickWith(xOpen) {
   const s = await settings();
   const job = await getJob();
   const now = Date.now();
@@ -158,13 +255,22 @@ async function tick() {
   if (!muting(s)) return;
   let rec = await mutesRec();
   if (now < (rec.nextAt || 0)) return;
-  const b = L.muteBudget(rec, L.utcDay(now));
+  const cap = L.muteCap(s);
+  const b = L.muteBudget(rec, L.utcDay(now), cap);
   if (b.stopped) return;
   const list = await stored();
   const candidates = L.muteCandidates(list && list.handles, s, rec);
   const pending = (rec.sinceCheck || []).length;
-  const canVisit = b.mutesLeft > 0 && b.visitsLeft > 0 && candidates.length > 0;
-  if (pending && (pending >= L.DEFAULTS.muteCheckEvery || !canVisit)) {
+  let canVisit = b.mutesLeft > 0 && b.visitsLeft > 0 && candidates.length > 0;
+  if (pending >= L.DEFAULTS.muteCheckEvery) {
+    await startJob('check', null, s.muteAccount, now);
+    return;
+  }
+  if (canVisit && L.capNeedsXOpen(cap)) {
+    if (xOpen === null) return ASK_TABS;
+    canVisit = xOpen === true;
+  }
+  if (pending && !canVisit) {
     await startJob('check', null, s.muteAccount, now);
     return;
   }
@@ -192,7 +298,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === ALARM) refresh();
-  if (a.name === MUTE_ALARM || a.name === JOB_ALARM) serial(tick);
+  if (a.name === MUTE_ALARM || a.name === JOB_ALARM) runTick();
 });
 
 // The user closed a job's tab before it reported: count it as an error.
@@ -200,6 +306,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   serial(async () => {
     const job = await getJob();
     if (job && job.tabId === tabId) await finishJob(job, { status: 'error', reason: 'the tab was closed before it finished' });
+    await forgetJobTab(tabId);
   });
 });
 
@@ -257,5 +364,64 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }).then(() => sendResponse(true), () => sendResponse(false));
     return true;
   }
+  if (msg.type === 'xsh:label') {
+    serial(() => saveLabel(msg)).then(sendResponse, (e) => sendResponse({ ok: false, reason: String((e && e.message) || e) }));
+    return true;
+  }
+  if (msg.type === 'xsh:labels-clear') {
+    // Only from the popup: a page at the extension's own address (also when
+    // opened in a tab), never a content script, whose address is the site's.
+    const own = chrome.runtime.getURL('');
+    if (!sender || typeof sender.url !== 'string' || !sender.url.startsWith(own)) return false;
+    serial(clearLabels).then(sendResponse, (e) => sendResponse({ ok: false, reason: String((e && e.message) || e) }));
+    return true;
+  }
   return false;
 });
+
+// ------------------------------------------------------------------ labels
+
+// Store one label from a content script, or clear it, after checking every
+// field (lib.labelRecord). A new label adds the account to Also hide (slop)
+// or Always show (not slop); clearing one changes neither box. Refused while
+// labels are off, and once labelMax are saved.
+// One read, then one write: settings are read in the same get as the label,
+// so a popup save can only be overwritten inside that one gap.
+async function saveLabel(msg) {
+  const id = msg && typeof msg.url === 'string' ? (L.statusOf(msg.url) || {}).id : null;
+  const key = id ? L.LABEL_PREFIX + id : null;
+  const got = await chrome.storage.local.get([K.settings, K.list, K.labelCount, ...(key ? [key] : [])]);
+  const s = got[K.settings] || {};
+  if (s.labeling !== true) return { ok: false, reason: 'labels are off' };
+  const list = got[K.list];
+  const r = L.labelRecord(msg, { handles: list && list.handles, source: list && list.source, settings: s }, Date.now());
+  if (!r.ok) return { ok: false, reason: r.reason };
+  if (L.LABEL_PREFIX + r.id !== key) return { ok: false, reason: 'not a post URL' };
+  const had = !!got[key];
+  let n = Number(got[K.labelCount]) || 0;
+  if (r.label === null) {
+    if (had) {
+      await chrome.storage.local.remove(key);
+      await chrome.storage.local.set({ [K.labelCount]: Math.max(0, n - 1) });
+    }
+    return { ok: true, label: null };
+  }
+  const max = L.DEFAULTS.labelMax;
+  if (!had && n >= max) {
+    // The count is only a cache of the keys: recount before refusing.
+    n = Object.keys(await chrome.storage.local.get(null)).filter((k) => k.startsWith(L.LABEL_PREFIX)).length;
+    if (n >= max) return { ok: false, reason: `${max} labels saved: export and delete them to add more` };
+  }
+  const writes = { [key]: r.record, [K.labelCount]: had ? n : n + 1 };
+  const patch = L.labelPatch(s, r.handle, r.label);
+  if (patch) writes[K.settings] = Object.assign({}, s, patch);
+  await chrome.storage.local.set(writes);
+  return { ok: true, label: r.label, added: patch ? Object.keys(patch)[0] : null };
+}
+
+// Delete every label and the count. The two boxes are left as they are.
+async function clearLabels() {
+  const keys = Object.keys(await chrome.storage.local.get(null)).filter((k) => k.startsWith(L.LABEL_PREFIX));
+  await chrome.storage.local.remove([...keys, K.labelCount]);
+  return { ok: true, removed: keys.length };
+}

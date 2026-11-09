@@ -29,9 +29,13 @@
     shrinkGuardFloor: 20,
     // Muting (off unless the user turns it on). Per UTC day: at most this many
     // mutes, and this many profile visits (an already-muted account costs a
-    // visit, not a mute).
+    // visit, not a mute). These are the default; muteCaps lists every daily
+    // cap the user may pick, and visits are always capped at twice the mutes.
     muteDailyCap: 25,
     muteVisitCap: 50,
+    // The only daily caps muteCap() returns. 100 is the ceiling: a stored
+    // value outside this list reads as muteDailyCap.
+    muteCaps: Object.freeze([25, 50, 100]),
     // Minutes between visits, picked at random in this range. The alarm that
     // drives muting fires once a minute (the floor at Chrome 116).
     muteGapMinutes: [1, 3],
@@ -44,13 +48,22 @@
     muteMaxAttempts: 2,
     // Accounts seen while browsing, muted ahead of the rest of the list.
     muteFrontMax: 50,
+    // Labels (extension only, off unless the user turns them on): at most
+    // this many saved, each keeping at most this many characters of reply text.
+    labelMax: 2000,
+    labelTextMax: 1000,
   });
 
   const STORAGE_KEYS = Object.freeze({
     list: 'xsh:list',
     settings: 'xsh:settings',
     mutes: 'xsh:mutes',
+    // How many labels are saved; each label is its own key, LABEL_PREFIX + post id.
+    labelCount: 'xsh:labelCount',
   });
+
+  const LABEL_PREFIX = 'xsh:label:';
+  const LABELS = Object.freeze(['slop', 'not_slop']);
 
   function normalizeHandle(raw) {
     if (raw == null) return null;
@@ -422,16 +435,35 @@
     return (rec.days && rec.days[today]) || { mutes: 0, visits: 0, stopped: null };
   }
 
-  // What today's caps leave. `stopped` is set when muting stopped itself for
-  // the day (an unexpected menu, a wrong account, a mute not on the list).
-  function muteBudget(rec, today) {
+  // The daily mute cap the user picked: 25, 50 or 100. Anything else,
+  // including a missing setting, reads as 25, so no stored value can raise
+  // the cap past 100.
+  function muteCap(settings) {
+    const v = settings && settings.muteCap;
+    return DEFAULTS.muteCaps.includes(v) ? v : DEFAULTS.muteDailyCap;
+  }
+
+  // A cap above the default mutes only while the user has an x.com tab of
+  // their own open.
+  function capNeedsXOpen(cap) {
+    return cap > DEFAULTS.muteDailyCap;
+  }
+
+  // What today's caps leave at the given daily cap (the default when cap is
+  // not one of muteCaps). Visits are capped at twice the mutes. `stopped` is
+  // set when muting stopped itself for the day (an unexpected menu, a wrong
+  // account, a mute not on the list).
+  function muteBudget(rec, today, cap) {
+    const c = DEFAULTS.muteCaps.includes(cap) ? cap : DEFAULTS.muteDailyCap;
     const d = dayOf(rec || emptyMutes(), today);
     return {
-      mutesLeft: Math.max(0, DEFAULTS.muteDailyCap - d.mutes),
-      visitsLeft: Math.max(0, DEFAULTS.muteVisitCap - d.visits),
+      mutesLeft: Math.max(0, c - d.mutes),
+      visitsLeft: Math.max(0, 2 * c - d.visits),
       stopped: d.stopped || null,
       mutes: d.mutes,
       visits: d.visits,
+      cap: c,
+      visitCap: 2 * c,
     };
   }
 
@@ -546,6 +578,114 @@
     };
   }
 
+  // ---------------------------------------------------------------- labels
+  //
+  // A label is the user's own call on one reply: slop or not slop. Each is
+  // stored under its own key (LABEL_PREFIX + the post id) in the extension's
+  // local storage and leaves the browser only in a file the user exports.
+
+  const STATUS_PATH_RE = /^\/([A-Za-z0-9_]{1,15})\/status\/(\d{1,25})(?:[/?#]|$)/;
+  const X_ORIGIN_RE = /^https:\/\/(?:mobile\.)?(?:x|twitter)\.com(?=\/)/i;
+
+  // The author handle and post id in a post's path or x.com URL
+  // (/h/status/123, https://x.com/h/status/123/photo/1), or null.
+  function statusOf(href) {
+    const p = String(href || '').replace(X_ORIGIN_RE, '');
+    const m = STATUS_PATH_RE.exec(p);
+    return m ? { handle: m[1].toLowerCase(), id: m[2] } : null;
+  }
+
+  const STATUS_PAGE_RE = /^\/([A-Za-z0-9_]{1,15})\/status\/(\d{1,25})\/?$/;
+
+  // The post a page is about, when the path is that post's own page
+  // (/h/status/123), or null. Its quotes, likes and photo pages
+  // (/h/status/123/quotes) are not the post's page.
+  function statusPageOf(pathname) {
+    const m = STATUS_PAGE_RE.exec(String(pathname || ''));
+    return m ? { handle: m[1].toLowerCase(), id: m[2] } : null;
+  }
+
+  const statusUrl = (s) => `https://x.com/${s.handle}/status/${s.id}`;
+
+  // Check and trim a label message from a content script. Returns
+  // { ok: false, reason } when anything in it is not what a label looks like,
+  // { ok: true, id, handle, label: null } for clearing one, else
+  // { ok: true, id, handle, label, record } with the record to store. ctx is
+  // what is stored now ({ handles, source } of the list, and settings); the
+  // record says what the list and the two boxes held before this label.
+  function labelRecord(msg, ctx, now) {
+    const m = msg || {};
+    const label = m.label === null ? null : LABELS.includes(m.label) ? m.label : undefined;
+    if (label === undefined) return { ok: false, reason: 'unknown label' };
+    const post = statusOf(m.url);
+    if (!post) return { ok: false, reason: 'not a post URL' };
+    const handle = normalizeHandle(m.handle);
+    if (!handle) return { ok: false, reason: 'not a handle' };
+    // The account that goes into a box must be the one the post's link names.
+    if (handle !== post.handle) return { ok: false, reason: "not the post's author" };
+    if (label === null) return { ok: true, id: post.id, handle, label: null };
+    const c = ctx || {};
+    const s = c.settings || {};
+    const page = statusPageOf(m.page);
+    let host = 'list';
+    try {
+      host = new URL(c.source || DEFAULTS.feedUrl).host || host;
+    } catch (e) {
+      // keep 'list'
+    }
+    const text = typeof m.text === 'string' ? Array.from(m.text).slice(0, DEFAULTS.labelTextMax).join('') : '';
+    const record = {
+      at: now,
+      label,
+      handle,
+      url: statusUrl(post),
+      text,
+      page: page ? statusUrl(page) : null,
+      list: new Set(c.handles || []).has(handle) ? host : null,
+      extra: parseAllowlist(s.extraList).has(handle),
+      allow: parseAllowlist(s.allowlist).has(handle),
+      // Whether x-slop-hide hides this account's replies on that page, with
+      // hiding not paused. Posts hidden for tagging a bot are not counted.
+      hidden: shouldHide(handle, {
+        list: effectiveList(c.handles, s),
+        allow: effectiveAllow(s),
+        owner: page ? page.handle : null,
+        paused: false,
+      }),
+    };
+    return { ok: true, id: post.id, handle, label, record };
+  }
+
+  // The settings change a label makes, or null for none: slop adds the
+  // account to Also hide, not_slop adds it to Always show. Neither takes an
+  // account out of a box, and clearing a label changes nothing.
+  function labelPatch(settings, handle, label) {
+    const field = label === 'slop' ? 'extraList' : label === 'not_slop' ? 'allowlist' : null;
+    const h = normalizeHandle(handle);
+    if (!field || !h) return null;
+    const text = String((settings && settings[field]) || '');
+    if (parseAllowlist(text).has(h)) return null;
+    const kept = text.replace(/\s+$/, '');
+    return { [field]: kept ? `${kept}\n${h}` : h };
+  }
+
+  // The label records in a storage snapshot (chrome.storage.local.get(null)),
+  // oldest first.
+  function labelsFrom(all) {
+    const o = all || {};
+    return Object.keys(o)
+      .filter((k) => k.startsWith(LABEL_PREFIX))
+      .map((k) => o[k])
+      .filter((r) => r && typeof r === 'object' && LABELS.includes(r.label))
+      .sort((a, b) => (a.at || 0) - (b.at || 0));
+  }
+
+  // One JSON object per line, ending in a newline when there is any.
+  function labelsJsonl(records) {
+    const rows = (records || []).map((r) => JSON.stringify(r));
+    return rows.length ? `${rows.join('\n')}\n` : '';
+  }
+
   const api = {
     HANDLE_RE,
     DEFAULTS,
@@ -578,6 +718,8 @@
     emptyMutes,
     muteEligible,
     muteCandidates,
+    muteCap,
+    capNeedsXOpen,
     muteBudget,
     recordOutcome,
     recordCheck,
@@ -585,6 +727,14 @@
     stopDay,
     noteSighting,
     muteSummary,
+    LABEL_PREFIX,
+    LABELS,
+    statusOf,
+    statusPageOf,
+    labelRecord,
+    labelPatch,
+    labelsFrom,
+    labelsJsonl,
   };
   root.XSlopHide = api;
   if (typeof module === 'object' && module && module.exports) module.exports = api;
