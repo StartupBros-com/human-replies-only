@@ -35,14 +35,14 @@ x-slop-hide hides posts on x.com by accounts on clankwall's public list of AI-re
 HIDING
 - A post is hidden when its author is on the list or in your Also hide box. Quotes and mentions of a listed account stay visible.
 - On an x.com tab, the popup counts what that tab hid. Pause hiding shows every post again.
-- Hiding works in this browser profile only. In your own tabs the extension clicks nothing and sends nothing.
+- Hiding works in this browser profile only. In your own tabs the extension never clicks anything on X's page and makes no network request.
 
 LABELS (optional)
 - Turn on Slop and Not slop buttons under replies. Slop adds the account to Also hide; Not slop adds it to Always show.
 - Labels stay in this browser. Export labels saves them to a file.
 
 MUTING (optional, off until you turn it on)
-- When you turn it on, x-slop-hide mutes listed accounts on your X account by clicking X's own Mute item on x.com, in background tabs it opens and closes, one every few minutes. You pick 25, 50 or 100 mutes a day.
+- When you turn it on, x-slop-hide mutes the listed accounts, the accounts in your Also hide box and any bot you set to Mute on X, on your X account. It clicks X's own Mute item on x.com, in background tabs it opens and closes, one visit about every 1 to 4 minutes. You pick 25, 50 or 100 mutes a day: 25 runs whenever the browser is open; 50 and 100 run only while you have an x.com tab open.
 - It skips accounts you follow and accounts in Always show. It never blocks, never unmutes, and does not use the X API.
 - X's rules forbid "scripting the X website" and say: "The use of these techniques may result in the permanent suspension of your account." Muting scripts x.com. Read the Muting section on the project page before you turn it on.
 
@@ -113,7 +113,7 @@ Hide posts on x.com by accounts on a public list of AI-reply spam accounts, or o
 | `storage` | Keeps the downloaded list, the user's settings and account lists, and, only if the user turns them on, the muting record and saved labels. All of it stays in the browser's extension storage. |
 | `alarms` | Refreshes the list every 6 hours. When muting is on, a once-a-minute alarm checks whether a mute visit is due, and a 90-second alarm closes a visit tab that stalls. |
 | Host permission `https://clankwall.vogel.dev/*` | The service worker downloads the public list from `https://clankwall.vogel.dev/api/usernames.txt`, without cookies. No other data is sent there. |
-| Content scripts on `x.com`, `twitter.com`, `mobile.x.com`, `mobile.twitter.com` | The content script reads each post's author handle to hide posts by listed accounts. X serves the same pages on all four hosts. With muting on, it also clicks X's own Mute item, only in a background tab the extension opened for that account. |
+| Content scripts on `x.com`, `twitter.com`, `mobile.x.com`, `mobile.twitter.com` | The content script reads each post's author handle to hide posts by listed accounts. X serves the same pages on all four hosts. It reads the user's own handle from X's navigation bar, so a post by the user is never hidden for tagging a bot and muting runs only as the account that turned it on. With labels on, it adds Slop and Not slop buttons under replies and reads a reply's text when the user clicks one. With muting on, it clicks X's own Mute item only in a background tab the extension opened for one account, and reads the user's muted-accounts page in another tab the extension opened, to confirm earlier mutes. |
 
 **Remote code:** No. All JavaScript ships in the package. The list it downloads
 is plain text, one handle per line, read as data and never run.
@@ -127,7 +127,7 @@ for each row. The stored fields are named by their keys in `PRIVACY.md`.
 | Personally identifiable information | Yes | X handles: the user's own handle while muting is on (`xsh:settings`), and other people's handles in the user's lists, the muting record (`xsh:mutes`) and labels (`xsh:label:<post id>`). |
 | Website content | Yes | Labels keep up to 1,000 characters of the labelled reply's text. |
 | Web history (the FAQ's "web browsing activity": the sites and URLs a user visits) | Yes | Each label keeps the address of the post and of the page it was labelled on, with the time. A narrow case, but ticking it is the safer reading. |
-| User activity | No | Nothing records keystrokes, mouse movement or browsing. The muting record keeps up to 50 listed accounts whose posts were hidden on the user's screen, so they are muted first; that is the extension's own output, not monitoring. |
+| User activity | No | Nothing records keystrokes or mouse movement. With muting on, the muting record keeps up to 50 accounts (listed, in Also hide, or a bot set to Mute on X) whose posts were hidden on the user's screen, so they are muted first. Labels record the user's own Slop and Not slop clicks, covered under Website content and Web history. This is the extension's own function, not monitoring; if the dashboard's wording for this box reads as covering it, tick it. |
 | Authentication information | No | The extension never reads passwords, cookies or tokens. Mute visits use the browser's own x.com login, as any page load does. |
 | Personal communications | No | Public replies only; no messages or email. |
 | Health, financial and payment, location | No | None handled. |
@@ -169,5 +169,5 @@ it in (no credentials are given):
 ```
 x-slop-hide needs no account of its own. To see hiding: log in to any X account, open a reply thread on x.com, open the extension's popup, and add the handle of one replier under Your accounts > Also hide these accounts, then Save. That reply disappears; the popup counts it; Pause hiding brings it back. Accounts on the downloaded list (shown as "N listed accounts" in the popup) are hidden the same way.
 
-Muting is off by default. It runs only after the user ticks "Mute listed accounts on X" while logged in to x.com, and then mutes at most 25, 50 or 100 accounts a day by clicking X's own Mute item in background tabs. It does not use the X API, block anyone or unmute anyone. Testing it mutes real accounts on the reviewer's X account; they can be unmuted at x.com/settings/muted/all.
+Muting is off by default. To turn it on, open x.com logged in, keep that tab active, open the popup and tick "Mute listed accounts on X". It then mutes at most 25, 50 or 100 accounts a day (50 and 100 only while an x.com tab is open) by clicking X's own Mute item in background tabs. It does not use the X API, block anyone or unmute anyone. Testing it mutes real accounts on the reviewer's X account; they can be unmuted at x.com/settings/muted/all.
 ```

@@ -101,8 +101,10 @@ until you remove one, and with muting on in both, both mute. To switch:
    set your bot rows, **Mutes a day** and, if you used it, muting again.
 
 The store copy starts a new mute record. Accounts the unpacked copy already
-muted are visited again, found already muted and recorded without a click.
-Mutes already made stay on your X account either way.
+muted are visited again and found already muted, without a click. Each of
+those visits counts against the day's visit cap (twice your **Mutes a day**),
+so with a long list it can take several days to reach accounts that are not
+muted yet. Mutes already made stay on your X account either way.
 
 ### Userscript (Violentmonkey or Tampermonkey)
 
@@ -428,8 +430,10 @@ The privacy policy, with what each storage key holds, is
 - The content script runs on x.com, twitter.com and their `mobile.` hosts. In
   your own tabs it makes no network requests and clicks nothing: it reads the
   page, adds one style rule, and sets an attribute on the cells it hides. While
-  muting is on, it also tells the background worker which listed authors it
-  hid, so they are visited first. With labelling on, it adds a second style
+  muting is on, it also tells the background worker the handle of each
+  account whose post it hid (once per account until the tab reloads), and
+  the worker puts the ones
+  muting may visit first in line. With labelling on, it adds a second style
   rule and the Slop / Not slop buttons, and hands each label you click, with
   the reply's text, to the background worker to store.
 - At 50 or 100 mutes a day, before each visit the worker lists your open tabs
@@ -441,8 +445,9 @@ The privacy policy, with what each storage key holds, is
 - The one network request the extension's own code sends is the feed fetch,
   from the background worker, to `clankwall.vogel.dev` (the only host
   permission). It sends no cookies (`credentials: 'omit'`) and bypasses the
-  cache. The userscript makes the same request through its manager
-  (`@connect clankwall.vogel.dev`, anonymous).
+  cache. The userscript fetches the same file through its manager
+  (`@connect clankwall.vogel.dev`, `anonymous: true`, so no cookies); the
+  cache setting applies to the extension only.
 - Muting sends no request of its own. A mute visit opens an x.com page in a
   tab, which the browser loads with your x.com login like any page you open,
   and the mute is the request x.com's page sends when its Mute item is
@@ -625,7 +630,9 @@ node scripts/store-screenshots.mjs --chrome <chromium>   # redraw store/images/
 
 - `scripts/package-store.mjs`: builds the store zip from a commit with
   `git archive`, holding only the files the extension loads plus `LICENSE`,
-  and refuses a manifest the store would reject. `--ref v0.5.0` zips a tag.
+  and refuses a manifest with a `key`, a name over 75 or a description over
+  132 characters, or a version that differs from `package.json`, and a zip
+  with a missing or unparseable file. `--ref v0.5.0` zips a tag.
 - `scripts/store-screenshots.mjs`: renders the store screenshots and promo
   tile in `store/images/` from the real extension on a local example page.
   `store/listing.md` has what to enter in the store dashboard.
