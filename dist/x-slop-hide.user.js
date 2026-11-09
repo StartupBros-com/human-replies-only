@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         x-slop-hide
 // @namespace    https://github.com/StartupBros-com/x-slop-hide
-// @version      0.6.1
+// @version      0.6.2
 // @description  Hides x.com posts by accounts on a self-updating AI-reply spam list. Hides only; muting is in the browser extension.
 // @license      MIT
 // @homepageURL  https://github.com/StartupBros-com/x-slop-hide

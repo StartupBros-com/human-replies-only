@@ -669,11 +669,11 @@ test('userscript: the bot, extra-accounts and tag menus save what the popup save
 
 // Run the real popup.js against popup.html with an in-memory chrome.storage.
 // `globals` adds to or replaces what the page sees (URL, Blob).
-function loadPopup(store, globals = {}) {
+function loadPopup(store, globals = {}, tabs = null) {
   const { window, document } = parseHTML(src('src/popup.html'));
   const chrome = fakeChrome();
   Object.assign(chrome.store, structuredClone(store));
-  chrome.tabs = { query: async () => [], sendMessage: async () => null };
+  chrome.tabs = tabs || { query: async () => [], sendMessage: async () => null };
   chrome.runtime.sendMessage = async () => ({ ok: true });
   const ctx = vm.createContext({ window, document, chrome, console, URL, ...globals });
   vm.runInContext(src('src/lib.js'), ctx, { filename: 'src/lib.js' });
@@ -709,6 +709,11 @@ test('popup: one row per bot, showing what applies now, without writing anything
     'showGrok reads as Show; a listed bot hides; the rest follow the list',
   );
   assert.equal(p.document.getElementById('bot-bot').disabled, true, 'Always-show locks the row to Show');
+  assert.equal(p.document.getElementById('bot-bot-why').hidden, false, 'a locked row says why in text, not only in a tooltip');
+  assert.equal(p.document.getElementById('bot-bot-why').textContent, 'Locked to Show: it is in Always show.');
+  assert.equal(p.document.getElementById('bot-bot').getAttribute('aria-describedby'), 'bot-bot-why');
+  assert.equal(p.document.getElementById('bot-grok-why').hidden, true);
+  assert.equal(p.document.getElementById('bot-grok').hasAttribute('aria-describedby'), false);
   assert.equal(p.document.getElementById('bot-grok').disabled, false);
   assert.equal(p.document.getElementById('mentions').checked, false);
   assert.equal(p.document.getElementById('botsSum').textContent, 'Show 5 · Hide here 1 · Mute on X 0', 'the folded section counts its rows');
@@ -824,6 +829,9 @@ test("popup: shows today's counts, the totals and why muting stopped", async () 
   );
   assert.equal(p.document.getElementById('muteStop').hidden, false);
   assert.equal(p.document.getElementById('muteStop').textContent, 'Stopped for today: not on settings/muted/all after muting: @b');
+  assert.equal(p.document.getElementById('muteNext').hidden, false, 'a stopped day says when muting starts again');
+  assert.match(p.document.getElementById('muteNext').textContent, /^Muting starts again on the next UTC day\. What each reason means$/);
+  assert.equal(p.document.querySelector('#muteNext a').getAttribute('href'), 'https://github.com/StartupBros-com/x-slop-hide#muting-stopped-for-today');
 });
 
 test('popup: the bar stops at the cap, and a stop line from today hides while muting is off', async () => {
@@ -843,6 +851,7 @@ test('popup: the bar stops at the cap, and a stop line from today hides while mu
   });
   await settle();
   assert.equal(off.document.getElementById('muteStop').hidden, true);
+  assert.equal(off.document.getElementById('muteNext').hidden, true);
   assert.equal(off.document.getElementById('muteOn').hidden, true);
   assert.equal(off.document.getElementById('muteHint').hidden, false);
 });
@@ -855,6 +864,156 @@ test('popup and manifest: every icon file they name exists', () => {
   const { document } = parseHTML(src('src/popup.html'));
   const img = document.querySelector('header img').getAttribute('src');
   assert.ok(existsSync(join(root, 'src', img)), img);
+});
+
+// The muting warning as the popup must show it whenever it shows the muting switch.
+const WARNING =
+  `X's rules forbid "scripting the X website" and say: "The use of these techniques may result in the permanent suspension of your account." Muting scripts x.com. A lower daily number lowers the risk; no number makes it allowed.`;
+// Nothing between the element and the page hides it: no hidden ancestor, no closed fold.
+const shownInDom = (el) => {
+  for (let e = el; e; e = e.parentElement) if (e.hidden || (e.tagName === 'DETAILS' && !e.hasAttribute('open'))) return false;
+  return true;
+};
+
+test('popup: the X rules warning is shown in full, outside every fold, beside the muting switch, on or off', async () => {
+  const day = lib.utcDay(Date.now());
+  const states = {
+    off: { 'xsh:settings': {} },
+    on: { 'xsh:settings': { muteEnabled: true, muteAccount: 'startupbros' } },
+    stopped: {
+      'xsh:settings': { muteEnabled: true, muteAccount: 'startupbros' },
+      'xsh:mutes': { ...lib.emptyMutes(), days: { [day]: { mutes: 1, visits: 2, stopped: '@a: login (x.com shows a login button)' } } },
+    },
+  };
+  for (const [name, seed] of Object.entries(states)) {
+    const p = loadPopup({ 'xsh:list': { handles: ['a'], fetchedAt: Date.now(), source: 's' }, ...seed });
+    await settle();
+    const w = p.document.getElementById('muteWarn');
+    assert.ok(w, `${name}: the warning is there`);
+    assert.equal(w.textContent.replace(/\s+/g, ' ').trim(), WARNING, `${name}: every word of it`);
+    // A boolean, not the element: a failed assert carrying a DOM node hangs the runner.
+    assert.equal(Boolean(w.closest('details')), false, `${name}: not inside a fold`);
+    assert.ok(shownInDom(w), `${name}: nothing hides it`);
+    assert.ok(shownInDom(p.document.getElementById('mute')), `${name}: the switch shows`);
+    assert.equal(p.document.getElementById('mute').getAttribute('aria-describedby'), 'muteWarn', `${name}: read out with the switch`);
+  }
+});
+
+test('popup: every control has a name a screen reader reads, and the page has one h1', async () => {
+  const p = loadPopup({ 'xsh:list': { handles: [], fetchedAt: Date.now(), source: 's' }, 'xsh:settings': {} });
+  await settle();
+  const d = p.document;
+  const nameOf = (el) => {
+    const aria = el.getAttribute('aria-label');
+    if (aria) return aria;
+    const wrap = el.closest('label');
+    if (wrap) return wrap.textContent;
+    const lab = el.id && d.querySelector(`label[for="${el.id}"]`);
+    if (lab) return lab.textContent;
+    return ['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName) ? '' : el.textContent;
+  };
+  const controls = [...d.querySelectorAll('a[href], button, input, select, textarea, summary')];
+  assert.ok(controls.length >= 30, `found ${controls.length} controls`);
+  for (const el of controls) assert.ok(nameOf(el).replace(/\s+/g, ' ').trim(), `${el.tagName.toLowerCase()}#${el.id} has no name`);
+  assert.equal(d.querySelectorAll('h1').length, 1);
+});
+
+test('popup: each message it writes later sits in a live region', () => {
+  const { document } = parseHTML(src('src/popup.html'));
+  const region = (id) => document.getElementById(id).parentElement.closest('[role]')?.getAttribute('role');
+  assert.deepEqual(
+    ['err', 'muteErr', 'muteStop', 'muteNext', 'labelsMsg'].map(region),
+    ['status', 'alert', 'status', 'status', 'status'],
+  );
+});
+
+test('popup: the tab line leads with the count, says when hiding is paused, and points at x.com elsewhere', async () => {
+  const list = { handles: ['a', 'b'], fetchedAt: Date.now(), source: 'https://clankwall.vogel.dev/api/usernames.txt' };
+  const tab = (o) => ({
+    query: async () => [{ id: 3 }],
+    sendMessage: async () => ({ me: 'm', paused: false, hiddenPosts: 14, hiddenAuthors: [...'abcdefghi'], hiddenNow: 3, hiddenMentions: 2, ...o }),
+  });
+  const read = (p) => ({
+    tab: p.document.getElementById('tab').textContent,
+    more: p.document.getElementById('tabMore').hidden ? null : p.document.getElementById('tabMore').textContent,
+  });
+  let p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} }, {}, tab({}));
+  await settle();
+  assert.deepEqual(read(p), { tab: '14 posts hidden on this tab', more: 'From 9 accounts. Plus 2 posts that tag a bot. 3 on screen now.' });
+  assert.equal(p.document.querySelector('#tab .num').textContent, '14', 'the count is its own element, drawn large');
+  assert.equal(p.document.getElementById('list').textContent, '2 accounts on the list');
+  assert.equal(p.document.getElementById('listAge').textContent, 'From clankwall.vogel.dev, updated just now');
+  p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} }, {}, tab({ hiddenPosts: 1, hiddenAuthors: ['a'], hiddenNow: 1, hiddenMentions: 1 }));
+  await settle();
+  assert.deepEqual(read(p), { tab: '1 post hidden on this tab', more: 'From 1 account. Plus 1 post that tags a bot. 1 on screen now.' });
+  p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} }, {}, tab({ hiddenPosts: 0, hiddenAuthors: [], hiddenNow: 0, hiddenMentions: 0 }));
+  await settle();
+  assert.deepEqual(read(p), { tab: '0 posts hidden on this tab', more: null });
+  // Only tag hiding hid anything: its count leads, not a 0.
+  p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} }, {}, tab({ hiddenPosts: 0, hiddenAuthors: [], hiddenNow: 2, hiddenMentions: 2 }));
+  await settle();
+  assert.deepEqual(read(p), { tab: '2 posts hidden on this tab', more: 'Each one tags a bot. 2 on screen now.' });
+  assert.equal(p.document.querySelector('#tab .num').textContent, '2');
+  p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} }, {}, tab({ hiddenPosts: 0, hiddenAuthors: [], hiddenNow: 1, hiddenMentions: 1 }));
+  await settle();
+  assert.deepEqual(read(p), { tab: '1 post hidden on this tab', more: 'It tags a bot. 1 on screen now.' });
+  // An x.com tab reports pause; another tab still points at x.com, as in 0.6.1.
+  p = loadPopup({ 'xsh:list': list, 'xsh:settings': { paused: true } }, {}, tab({ paused: true }));
+  await settle();
+  assert.deepEqual(read(p), { tab: 'Hiding is paused', more: 'Turn off Pause hiding to hide posts again.' });
+  p = loadPopup({ 'xsh:list': list, 'xsh:settings': { paused: true } });
+  await settle();
+  assert.deepEqual(read(p), { tab: 'Open x.com in this tab to see what was hidden.', more: 'If it is already open, reload the tab.' });
+  p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} });
+  await settle();
+  // No answer from the tab: another site, or an x.com tab opened before install.
+  assert.deepEqual(read(p), { tab: 'Open x.com in this tab to see what was hidden.', more: 'If it is already open, reload the tab.' });
+  p = loadPopup({ 'xsh:list': { handles: [] }, 'xsh:settings': {} });
+  await settle();
+  assert.equal(p.document.getElementById('listAge').textContent, 'From clankwall.vogel.dev, not fetched yet');
+});
+
+test('popup: a failed refresh says the previous list is still in use only when there is one', async () => {
+  const at = Date.now();
+  let p = loadPopup({ 'xsh:list': { handles: ['a'], fetchedAt: at - 3600e3, lastAttemptAt: at, lastError: 'HTTP 503', source: 's' }, 'xsh:settings': {} });
+  await settle();
+  assert.equal(p.document.getElementById('err').hidden, false);
+  assert.equal(p.document.getElementById('err').textContent, 'Last refresh failed (just now): HTTP 503. Still using the previous list.');
+  // The first fetch failed: there is no previous list to fall back on.
+  p = loadPopup({ 'xsh:list': { handles: [], fetchedAt: 0, lastAttemptAt: at, lastError: 'HTTP 503', source: 's' }, 'xsh:settings': {} });
+  await settle();
+  assert.equal(p.document.getElementById('err').textContent, 'Last refresh failed (just now): HTTP 503.');
+  assert.equal(p.document.getElementById('list').textContent, '0 accounts on the list');
+});
+
+test('popup: Refresh list now stays enabled (aria-disabled, not disabled) while it works, and two clicks send one refresh', async () => {
+  const p = loadPopup({ 'xsh:list': { handles: [], fetchedAt: Date.now(), source: 's' }, 'xsh:settings': {} });
+  await settle();
+  const sent = [];
+  let release = null;
+  p.chrome.runtime.sendMessage = (m) => {
+    sent.push(m.type);
+    return new Promise((r) => {
+      release = () => r({ ok: true });
+    });
+  };
+  const btn = p.document.getElementById('refresh');
+  btn.dispatchEvent(new p.window.Event('click'));
+  btn.dispatchEvent(new p.window.Event('click'));
+  await settle();
+  assert.deepEqual(sent, ['xsh:refresh']);
+  assert.equal(btn.getAttribute('aria-disabled'), 'true');
+  assert.equal(btn.disabled, false, 'a disabled button would drop keyboard focus');
+  assert.equal(btn.textContent, 'Refreshing…');
+  release();
+  await settle();
+  assert.equal(btn.hasAttribute('aria-disabled'), false);
+  assert.equal(btn.textContent, 'Refresh list now');
+  btn.dispatchEvent(new p.window.Event('click'));
+  await settle();
+  assert.deepEqual(sent, ['xsh:refresh', 'xsh:refresh'], 'it can refresh again once the first is done');
+  release();
+  await settle();
 });
 
 test('userscript: has no job channel, so it only hides', async () => {
@@ -1246,6 +1405,8 @@ test('popup: the daily number offers 25, 50 and 100, saves the one picked, and s
     $('capWhy').textContent,
     'No setting goes above 100: hiding already covers this browser, and muting only adds the X apps. At 100 a day, muting the 249 accounts left takes 3 days.',
   );
+  // A boolean, not the element: a failed assert carrying a DOM node hangs the runner.
+  assert.equal(Boolean($('capWhy').closest('details')), false, 'the cap note is in view, not inside a fold');
   choose(p, 'muteCap', '50');
   await settle();
   assert.deepEqual(p.chrome.store['xsh:settings'], { muteEnabled: true, muteAccount: 'startupbros', muteCap: 50 });
@@ -1333,6 +1494,7 @@ test('popup: labels switch on and off, export as JSON lines oldest first, and de
   await settle();
   assert.deepEqual(sent, []);
   assert.equal($('deleteLabels').textContent, 'Click again to delete 3 labels');
+  assert.equal($('deleteLabels').className, 'armed');
   $('deleteLabels').dispatchEvent(new p.window.Event('click'));
   await settle();
   assert.deepEqual(sent, [{ type: 'xsh:labels-clear' }]);
@@ -1341,6 +1503,7 @@ test('popup: labels switch on and off, export as JSON lines oldest first, and de
   assert.equal($('export').disabled, true);
   assert.equal($('deleteLabels').disabled, true);
   assert.equal($('deleteLabels').textContent, 'Delete all labels');
+  assert.equal($('deleteLabels').className, '');
   assert.deepEqual(p.chrome.store['xsh:settings'], { extraList: 'h1', labeling: true }, 'the boxes stay');
   // A count with no labels behind it exports nothing; a refused delete says why.
   const q = loadPopup({ 'xsh:list': store['xsh:list'], 'xsh:settings': { labeling: true }, 'xsh:labelCount': 1 }, { URL: TestURL, Blob });

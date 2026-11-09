@@ -143,11 +143,16 @@ folded; click a heading to open it. A folded heading shows its counts, such as
 "Show 5 · Hide here 1 · Mute on X 0", "Always show 2 · Also hide 0" or "On ·
 12 saved".
 
-**Save** saves both boxes at once. On an x.com tab, the popup also counts what
-it hid there: "This tab: N posts from M accounts hidden (K on screen now)", with
-", plus N posts that tag a bot" before the brackets when tag hiding hid any.
-While hiding is paused, it says "Paused on this tab." The userscript has no
-counter.
+**Save** saves both boxes at once. On an x.com tab, the popup opens with the
+count of what it hid there, "N posts hidden on this tab", and under it "From M
+accounts." It adds "Plus N posts that tag a bot." when tag hiding hid any, then
+"K on screen now.", which counts both. When tag hiding hid posts and the list
+hid none, the count is of those posts, with "Each one tags a bot. K on screen
+now." On a tab it cannot count, another site
+or an x.com tab opened before the extension was installed or reloaded, it says
+"Open x.com in this tab to see what was hidden. If it is already open, reload
+the tab." While hiding is paused, an x.com tab says "Hiding is paused". The
+userscript has no counter.
 
 ## What gets hidden
 
@@ -548,8 +553,9 @@ that.
 
 ### The popup says "Last refresh failed (…): …. Still using the previous list."
 
-The list you already had is still in use. The text after the colon says why
-the update was refused:
+The list you already had is still in use. If no list was ever fetched, the line
+ends after the reason and the popup shows 0 accounts on the list. The text
+after the colon says why the update was refused:
 
 | Reason | Meaning |
 |---|---|

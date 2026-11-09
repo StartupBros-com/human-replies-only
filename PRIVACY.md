@@ -3,7 +3,7 @@
 x-slop-hide hides posts on x.com by accounts on a public list of AI-reply spam
 accounts. The browser extension can also mute those accounts on X, and can save
 labels you give to replies. This policy covers the extension and the userscript,
-version 0.6.1. Last updated 2026-11-09.
+version 0.6.2. Last updated 2026-11-09.
 
 ## In short
 

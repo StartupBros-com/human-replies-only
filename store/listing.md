@@ -1,6 +1,6 @@
 # Chrome Web Store listing
 
-What to enter in the Chrome Web Store developer dashboard for x-slop-hide 0.6.1,
+What to enter in the Chrome Web Store developer dashboard for x-slop-hide 0.6.2,
 field by field. Field names and rules are from Google's developer documentation
 at developer.chrome.com/docs/webstore, read on 2026-11-09. Where the docs show a
 dashboard label only in a screenshot, this file says so; match it to the
@@ -176,7 +176,7 @@ credentials for full access; seeing x-slop-hide work needs an X login, so fill
 it in (no credentials are given):
 
 ```
-x-slop-hide needs no account of its own. To see hiding: log in to any X account, open a reply thread on x.com, open the extension's popup, and add the handle of one replier under Your accounts > Also hide these accounts, then Save. That reply disappears; the popup counts it; Pause hiding brings it back. Accounts on the downloaded list (shown as "N listed accounts" in the popup) are hidden the same way.
+x-slop-hide needs no account of its own. To see hiding: log in to any X account, open a reply thread on x.com, open the extension's popup, and add the handle of one replier under Your accounts > Also hide these accounts, then Save. That reply disappears; the popup counts it; Pause hiding brings it back. Accounts on the downloaded list (shown as "N accounts on the list" in the popup) are hidden the same way.
 
 Muting is off by default. To turn it on, open x.com logged in, keep that tab active, open the popup and tick "Mute listed accounts on X". It then mutes at most 25, 50 or 100 accounts a day (50 and 100 only while an x.com tab is open) by clicking X's own Mute item in background tabs. It does not use the X API, block anyone or unmute anyone. Testing it mutes real accounts on the reviewer's X account; they can be unmuted at x.com/settings/muted/all.
 ```
