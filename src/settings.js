@@ -124,6 +124,8 @@
     if (p.addHide.length) line(`Also hide gains ${plural(p.addHide.length, 'account', 'accounts')}: ${names(p.addHide)}.`, p.addHide);
     if (p.staysShown.length)
       line(`${names(p.staysShown)} will stay shown, because Always show has ${p.staysShown.length === 1 ? 'it' : 'them'}.`, p.staysShown);
+    if (p.staysShownBots.length)
+      line(`${names(p.staysShownBots.map(botName))} will stay shown, because ${p.staysShownBots.length === 1 ? 'it is' : 'they are'} set to Show.`);
     for (const c of p.botChanges) line(`@${botName(c.handle)}: ${c.from ? LABELS[c.from] : 'follows the list'} → ${LABELS[c.to]}.`);
     if (p.mentions !== null) line(`${p.mentions ? 'Turns on' : 'Turns off'} hiding posts that tag a bot set to Hide here or Mute on X.`);
 

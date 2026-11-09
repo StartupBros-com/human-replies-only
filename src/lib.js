@@ -802,8 +802,10 @@
   // accounts, appended to the text already there; the file's bot choices and
   // tag setting replace the current ones. The rest describes the change:
   // `muteTargets` are accounts muting does not reach now and would after the
-  // import (whether or not muting is on), `muteBots` the bots among them, and
-  // `staysShown` accounts added to Also hide that Always show keeps visible.
+  // import (whether or not muting is on), `muteBots` the bots among them,
+  // `staysShown` accounts added to Also hide that Always show keeps visible,
+  // and `staysShownBots` the other bots added to Also hide that stay visible
+  // because they are set to Show.
   function importPlan(settings, file, listHandles) {
     const s = settings || {};
     const f = file || {};
@@ -839,6 +841,7 @@
     const before = new Set(muteEligible(listHandles, s));
     const muteTargets = muteEligible(listHandles, next).filter((h) => !before.has(h));
     const allow = effectiveAllow(next);
+    const always = parseAllowlist(next.allowlist);
     return {
       patch,
       empty: Object.keys(patch).length === 0,
@@ -848,7 +851,8 @@
       mentions,
       muteTargets,
       muteBots: muteTargets.filter((h) => BOT_HANDLES.has(h)),
-      staysShown: addHide.filter((h) => allow.has(h)),
+      staysShown: addHide.filter((h) => always.has(h)),
+      staysShownBots: addHide.filter((h) => allow.has(h) && !always.has(h)),
       muting: !!(s.muteEnabled && s.muteAccount),
       muteAccount: s.muteAccount || null,
       muteCap: muteCap(s),
