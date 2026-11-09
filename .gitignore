@@ -4,3 +4,6 @@ node_modules/
 # `pnpm run check` fails when it is stale. Re-included because a common global
 # gitignore excludes dist/.
 !dist/
+
+# Store zips from scripts/package-store.mjs.
+build/
