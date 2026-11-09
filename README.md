@@ -84,6 +84,28 @@ second copy that has none of them, and leaves both running. The list itself
 refreshes without any of this: on install, on browser start when it is due,
 and every 6 hours.
 
+#### Moving to a web store copy
+
+x-slop-hide is not in a web store yet. When it is, a store copy will be a
+different extension to the browser, with its own id and its own storage, so
+nothing carries over from an unpacked copy: not your settings, your **Always
+show** and **Also hide** boxes, the mute record or your labels. Both copies run
+until you remove one, and with muting on in both, both mute. To switch:
+
+1. In the unpacked copy's popup, copy your **Always show** and **Also hide**
+   boxes somewhere, and click **Export labels** if you keep labels. There is
+   no label import, so the file is your record of them, not a way to move
+   them.
+2. Remove the unpacked copy in `chrome://extensions`. This deletes its labels.
+3. Install the store copy, paste the two boxes back and click **Save**, then
+   set your bot rows, **Mutes a day** and, if you used it, muting again.
+
+The store copy starts a new mute record. Accounts the unpacked copy already
+muted are visited again and found already muted, without a click. Each of
+those visits counts against the day's visit cap (twice your **Mutes a day**),
+so with a long list it can take several days to reach accounts that are not
+muted yet. Mutes already made stay on your X account either way.
+
 ### Userscript (Violentmonkey or Tampermonkey)
 
 Install a userscript manager (the script was tested in Violentmonkey 2.50.0;
@@ -397,14 +419,21 @@ and the popup shows why. A broken or truncated feed cannot empty your filter.
 
 ## Permissions and privacy
 
-- `storage` holds the list, your settings, the mute record and your labels.
-  `alarms` schedules the list refresh, muting's once-a-minute check, and the
+The privacy policy, with what each storage key holds, is
+[PRIVACY.md](PRIVACY.md).
+
+- `storage` holds the list, your settings, the mute record and your labels, in
+  `chrome.storage.local`. During a mute visit it also holds the visit's
+  account and tab ids in `chrome.storage.session`, which the browser clears
+  when it closes. `alarms` schedules the list refresh, muting's once-a-minute check, and the
   90 s limit on a visit. Opening and closing its own tabs needs no further permission.
 - The content script runs on x.com, twitter.com and their `mobile.` hosts. In
   your own tabs it makes no network requests and clicks nothing: it reads the
   page, adds one style rule, and sets an attribute on the cells it hides. While
-  muting is on, it also tells the background worker which listed authors it
-  hid, so they are visited first. With labelling on, it adds a second style
+  muting is on, it also tells the background worker the handle of each
+  account whose post it hid (once per account until the tab reloads), and
+  the worker puts the ones
+  muting may visit first in line. With labelling on, it adds a second style
   rule and the Slop / Not slop buttons, and hands each label you click, with
   the reply's text, to the background worker to store.
 - At 50 or 100 mutes a day, before each visit the worker lists your open tabs
@@ -413,21 +442,21 @@ and the popup shows why. A broken or truncated feed cannot empty your filter.
   title, and only x-slop-hide's script on an x.com page answers.
 - It clicks only in a tab the background worker opened for a visit. The worker
   hands that tab its job once, so a reload of the tab does not click again.
-- The one network request the extension makes itself is the feed fetch, from
-  the background worker, to `clankwall.vogel.dev` (the only host permission).
-  It sends no cookies (`credentials: 'omit'`) and bypasses the cache. The
-  userscript makes the same request through its manager
-  (`@connect clankwall.vogel.dev`, anonymous).
-- Muting sends no request of its own. The mute is the request x.com's page
-  sends when its Mute item is clicked, with your x.com login, as when you click
-  it yourself.
+- The one network request the extension's own code sends is the feed fetch,
+  from the background worker, to `clankwall.vogel.dev` (the only host
+  permission). It sends no cookies (`credentials: 'omit'`) and bypasses the
+  cache. The userscript fetches the same file through its manager
+  (`@connect clankwall.vogel.dev`, `anonymous: true`, so no cookies); the
+  cache setting applies to the extension only.
+- Muting sends no request of its own. A mute visit opens an x.com page in a
+  tab, which the browser loads with your x.com login like any page you open,
+  and the mute is the request x.com's page sends when its Mute item is
+  clicked, as when you click it yourself.
 - Labels, including the text of the replies you label, are stored only in this
   browser profile's extension storage (an `xsh:label:<post id>` key for each,
   and a count, `xsh:labelCount`). They leave it only when you click **Export
   labels** and save the file, and removing the extension deletes them.
 - Nothing else is collected or sent. There is no analytics.
-- Because labels store other people's replies, a web store listing of
-  x-slop-hide will need a privacy policy. It is not in a web store yet.
 - The feed URL is a setting (`feedUrl` in `xsh:settings`) with no UI yet. A
   feed on another host also needs that host added to `host_permissions` in
   `manifest.json` (unless it serves CORS headers), or, for the userscript, an
@@ -595,7 +624,18 @@ pnpm install
 pnpm test            # node --test 'test/*.test.mjs'
 pnpm run build       # rebuild dist/x-slop-hide.user.js from src/
 pnpm run check       # userscript is current + parses + tests (what CI runs)
+pnpm run package:store                     # Chrome Web Store zip of HEAD, into build/
+node scripts/store-screenshots.mjs --chrome <chromium>   # redraw store/images/
 ```
+
+- `scripts/package-store.mjs`: builds the store zip from a commit with
+  `git archive`, holding only the files the extension loads plus `LICENSE`,
+  and refuses a manifest with a `key`, a name over 75 or a description over
+  132 characters, or a version that differs from `package.json`, and a zip
+  with a missing or unparseable file. `--ref v0.5.0` zips a tag.
+- `scripts/store-screenshots.mjs`: renders the store screenshots and promo
+  tile in `store/images/` from the real extension on a local example page.
+  `store/listing.md` has what to enter in the store dashboard.
 
 - `src/lib.js`: pure logic, shared by every runtime and the tests: list
   parsing and validation, the update guard, author detection, the hide rule,
