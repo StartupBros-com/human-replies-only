@@ -1,6 +1,6 @@
 # Chrome Web Store listing
 
-What to enter in the Chrome Web Store developer dashboard for x-slop-hide 0.6.1,
+What to enter in the Chrome Web Store developer dashboard for x-slop-hide 0.6.2,
 field by field. Field names and rules are from Google's developer documentation
 at developer.chrome.com/docs/webstore, read on 2026-11-09. Where the docs show a
 dashboard label only in a screenshot, this file says so; match it to the
