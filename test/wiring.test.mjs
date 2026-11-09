@@ -938,24 +938,24 @@ test('popup: the tab line leads with the count, says when hiding is paused, and 
   });
   let p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} }, {}, tab({}));
   await settle();
-  assert.deepEqual(read(p), { tab: '14 posts hidden on this tab', more: 'From 9 accounts. 3 on screen now. Plus 2 posts that tag a bot.' });
+  assert.deepEqual(read(p), { tab: '14 posts hidden on this tab', more: 'From 9 accounts. Plus 2 posts that tag a bot. 3 on screen now.' });
   assert.equal(p.document.querySelector('#tab .num').textContent, '14', 'the count is its own element, drawn large');
   assert.equal(p.document.getElementById('list').textContent, '2 accounts on the list');
   assert.equal(p.document.getElementById('listAge').textContent, 'From clankwall.vogel.dev, updated just now');
   p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} }, {}, tab({ hiddenPosts: 1, hiddenAuthors: ['a'], hiddenNow: 1, hiddenMentions: 1 }));
   await settle();
-  assert.deepEqual(read(p), { tab: '1 post hidden on this tab', more: 'From 1 account. 1 on screen now. Plus 1 post that tags a bot.' });
+  assert.deepEqual(read(p), { tab: '1 post hidden on this tab', more: 'From 1 account. Plus 1 post that tags a bot. 1 on screen now.' });
   p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} }, {}, tab({ hiddenPosts: 0, hiddenAuthors: [], hiddenNow: 0, hiddenMentions: 0 }));
   await settle();
   assert.deepEqual(read(p), { tab: '0 posts hidden on this tab', more: null });
   // Only tag hiding hid anything: its count leads, not a 0.
-  p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} }, {}, tab({ hiddenPosts: 0, hiddenAuthors: [], hiddenNow: 0, hiddenMentions: 2 }));
+  p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} }, {}, tab({ hiddenPosts: 0, hiddenAuthors: [], hiddenNow: 2, hiddenMentions: 2 }));
   await settle();
-  assert.deepEqual(read(p), { tab: '2 posts hidden on this tab', more: 'Each one tags a bot.' });
+  assert.deepEqual(read(p), { tab: '2 posts hidden on this tab', more: 'Each one tags a bot. 2 on screen now.' });
   assert.equal(p.document.querySelector('#tab .num').textContent, '2');
-  p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} }, {}, tab({ hiddenPosts: 0, hiddenAuthors: [], hiddenNow: 0, hiddenMentions: 1 }));
+  p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} }, {}, tab({ hiddenPosts: 0, hiddenAuthors: [], hiddenNow: 1, hiddenMentions: 1 }));
   await settle();
-  assert.deepEqual(read(p), { tab: '1 post hidden on this tab', more: 'It tags a bot.' });
+  assert.deepEqual(read(p), { tab: '1 post hidden on this tab', more: 'It tags a bot. 1 on screen now.' });
   // Pause is one setting for every tab, so even a tab without x.com says so.
   p = loadPopup({ 'xsh:list': list, 'xsh:settings': { paused: true } });
   await settle();
@@ -969,7 +969,20 @@ test('popup: the tab line leads with the count, says when hiding is paused, and 
   assert.equal(p.document.getElementById('listAge').textContent, 'From clankwall.vogel.dev, not fetched yet');
 });
 
-test('popup: Refresh list now keeps keyboard focus while it works, and two clicks send one refresh', async () => {
+test('popup: a failed refresh says the previous list is still in use only when there is one', async () => {
+  const at = Date.now();
+  let p = loadPopup({ 'xsh:list': { handles: ['a'], fetchedAt: at - 3600e3, lastAttemptAt: at, lastError: 'HTTP 503', source: 's' }, 'xsh:settings': {} });
+  await settle();
+  assert.equal(p.document.getElementById('err').hidden, false);
+  assert.equal(p.document.getElementById('err').textContent, 'Last refresh failed (just now): HTTP 503. Still using the previous list.');
+  // The first fetch failed: there is no previous list to fall back on.
+  p = loadPopup({ 'xsh:list': { handles: [], fetchedAt: 0, lastAttemptAt: at, lastError: 'HTTP 503', source: 's' }, 'xsh:settings': {} });
+  await settle();
+  assert.equal(p.document.getElementById('err').textContent, 'Last refresh failed (just now): HTTP 503.');
+  assert.equal(p.document.getElementById('list').textContent, '0 accounts on the list');
+});
+
+test('popup: Refresh list now stays enabled (aria-disabled, not disabled) while it works, and two clicks send one refresh', async () => {
   const p = loadPopup({ 'xsh:list': { handles: [], fetchedAt: Date.now(), source: 's' }, 'xsh:settings': {} });
   await settle();
   const sent = [];
@@ -1388,6 +1401,8 @@ test('popup: the daily number offers 25, 50 and 100, saves the one picked, and s
     $('capWhy').textContent,
     'No setting goes above 100: hiding already covers this browser, and muting only adds the X apps. At 100 a day, muting the 249 accounts left takes 3 days.',
   );
+  // A boolean, not the element: a failed assert carrying a DOM node hangs the runner.
+  assert.equal(Boolean($('capWhy').closest('details')), false, 'the cap note is in view, not inside a fold');
   choose(p, 'muteCap', '50');
   await settle();
   assert.deepEqual(p.chrome.store['xsh:settings'], { muteEnabled: true, muteAccount: 'startupbros', muteCap: 50 });

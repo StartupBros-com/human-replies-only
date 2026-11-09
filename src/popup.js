@@ -130,7 +130,7 @@
     setText($('list'), `${plural(rec.handles.length, 'account', 'accounts')} on the list`);
     setText($('listAge'), `From ${host}, ${rec.fetchedAt ? `updated ${ago(rec.fetchedAt)}` : 'not fetched yet'}`);
     setHidden($('err'), !rec.lastError);
-    setText($('err'), rec.lastError ? `Last refresh failed (${ago(rec.lastAttemptAt)}): ${rec.lastError}. Still using the previous list.` : '');
+    setText($('err'), rec.lastError ? `Last refresh failed (${ago(rec.lastAttemptAt)}): ${rec.lastError}.${rec.fetchedAt ? ' Still using the previous list.' : ''}` : '');
     $('paused').checked = !!s.paused;
     if (document.activeElement !== $('allow')) $('allow').value = s.allowlist || '';
     if (document.activeElement !== $('extra')) $('extra').value = s.extraList || '';
@@ -157,11 +157,13 @@
     // Tag hiding counts apart from the list; when it hid everything, its count leads.
     if (!st.hiddenPosts && st.hiddenMentions) {
       const one = st.hiddenMentions === 1;
-      return renderTab(`${one ? 'post' : 'posts'} hidden on this tab`, one ? 'It tags a bot.' : 'Each one tags a bot.', st.hiddenMentions);
+      return renderTab(`${one ? 'post' : 'posts'} hidden on this tab`, `${one ? 'It tags a bot.' : 'Each one tags a bot.'} ${st.hiddenNow} on screen now.`, st.hiddenMentions);
     }
     const more = [];
-    if (st.hiddenPosts) more.push(`From ${plural(st.hiddenAuthors.length, 'account', 'accounts')}. ${st.hiddenNow} on screen now.`);
+    if (st.hiddenPosts) more.push(`From ${plural(st.hiddenAuthors.length, 'account', 'accounts')}.`);
     if (st.hiddenMentions) more.push(`Plus ${plural(st.hiddenMentions, 'post that tags', 'posts that tag')} a bot.`);
+    // The page marks every hidden post the same way, so this counts both kinds.
+    if (more.length) more.push(`${st.hiddenNow} on screen now.`);
     renderTab(`${st.hiddenPosts === 1 ? 'post' : 'posts'} hidden on this tab`, more.join(' '), st.hiddenPosts);
   }
 
