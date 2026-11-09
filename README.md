@@ -146,9 +146,12 @@ folded; click a heading to open it. A folded heading shows its counts, such as
 **Save** saves both boxes at once. On an x.com tab, the popup opens with the
 count of what it hid there, "N posts hidden on this tab", and under it "From M
 accounts. K on screen now." It adds "Plus N posts that tag a bot." when tag
-hiding hid any. On any other tab it says "Open x.com in this tab to see what
-was hidden." While hiding is paused, it says "Hiding is paused" on every tab.
-The userscript has no counter.
+hiding hid any; when tag hiding hid posts and the list hid none, the count is of
+those posts, with "Each one tags a bot." On a tab it cannot count, another site
+or an x.com tab opened before the extension was installed or reloaded, it says
+"Open x.com in this tab to see what was hidden. If it is already open, reload
+the tab." While hiding is paused, it says "Hiding is paused" on every tab. The
+userscript has no counter.
 
 ## What gets hidden
 

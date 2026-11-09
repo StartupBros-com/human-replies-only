@@ -150,8 +150,15 @@
         // No content script in this tab (not x.com).
       }
     }
-    if (!st) return renderTab('Open x.com in this tab to see what was hidden.');
+    // No answer: another site, or an x.com tab opened before the extension
+    // was installed or reloaded, which has no content script until it reloads.
+    if (!st) return renderTab('Open x.com in this tab to see what was hidden.', 'If it is already open, reload the tab.');
     if (st.paused) return renderTab('Hiding is paused', 'Turn off Pause hiding to hide posts again.');
+    // Tag hiding counts apart from the list; when it hid everything, its count leads.
+    if (!st.hiddenPosts && st.hiddenMentions) {
+      const one = st.hiddenMentions === 1;
+      return renderTab(`${one ? 'post' : 'posts'} hidden on this tab`, one ? 'It tags a bot.' : 'Each one tags a bot.', st.hiddenMentions);
+    }
     const more = [];
     if (st.hiddenPosts) more.push(`From ${plural(st.hiddenAuthors.length, 'account', 'accounts')}. ${st.hiddenNow} on screen now.`);
     if (st.hiddenMentions) more.push(`Plus ${plural(st.hiddenMentions, 'post that tags', 'posts that tag')} a bot.`);

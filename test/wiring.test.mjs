@@ -948,13 +948,22 @@ test('popup: the tab line leads with the count, says when hiding is paused, and 
   p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} }, {}, tab({ hiddenPosts: 0, hiddenAuthors: [], hiddenNow: 0, hiddenMentions: 0 }));
   await settle();
   assert.deepEqual(read(p), { tab: '0 posts hidden on this tab', more: null });
+  // Only tag hiding hid anything: its count leads, not a 0.
+  p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} }, {}, tab({ hiddenPosts: 0, hiddenAuthors: [], hiddenNow: 0, hiddenMentions: 2 }));
+  await settle();
+  assert.deepEqual(read(p), { tab: '2 posts hidden on this tab', more: 'Each one tags a bot.' });
+  assert.equal(p.document.querySelector('#tab .num').textContent, '2');
+  p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} }, {}, tab({ hiddenPosts: 0, hiddenAuthors: [], hiddenNow: 0, hiddenMentions: 1 }));
+  await settle();
+  assert.deepEqual(read(p), { tab: '1 post hidden on this tab', more: 'It tags a bot.' });
   // Pause is one setting for every tab, so even a tab without x.com says so.
   p = loadPopup({ 'xsh:list': list, 'xsh:settings': { paused: true } });
   await settle();
   assert.deepEqual(read(p), { tab: 'Hiding is paused', more: 'Turn off Pause hiding to hide posts again.' });
   p = loadPopup({ 'xsh:list': list, 'xsh:settings': {} });
   await settle();
-  assert.deepEqual(read(p), { tab: 'Open x.com in this tab to see what was hidden.', more: null });
+  // No answer from the tab: another site, or an x.com tab opened before install.
+  assert.deepEqual(read(p), { tab: 'Open x.com in this tab to see what was hidden.', more: 'If it is already open, reload the tab.' });
   p = loadPopup({ 'xsh:list': { handles: [] }, 'xsh:settings': {} });
   await settle();
   assert.equal(p.document.getElementById('listAge').textContent, 'From clankwall.vogel.dev, not fetched yet');
