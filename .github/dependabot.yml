@@ -1,0 +1,16 @@
+# Dependabot keeps the pinned GitHub Actions in .github/workflows current.
+# Package dependencies (pnpm) are updated by Renovate, not here.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Wait three days after a release before proposing it, so a bad or
+    # hijacked release has time to be pulled. Security updates skip the wait.
+    cooldown:
+      default-days: 3
+    groups:
+      github-actions:
+        update-types: ["minor", "patch"]
+    labels: ["dependencies", "github-actions"]
