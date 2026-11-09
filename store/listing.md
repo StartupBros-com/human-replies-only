@@ -1,6 +1,6 @@
 # Chrome Web Store listing
 
-What to enter in the Chrome Web Store developer dashboard for x-slop-hide 0.5.0,
+What to enter in the Chrome Web Store developer dashboard for x-slop-hide 0.6.0,
 field by field. Field names and rules are from Google's developer documentation
 at developer.chrome.com/docs/webstore, read on 2026-11-09. Where the docs show a
 dashboard label only in a screenshot, this file says so; match it to the
@@ -15,9 +15,9 @@ git fetch origin
 node scripts/package-store.mjs --ref origin/main
 ```
 
-Build from `main`, not from the `v0.5.0` tag. Both hold the same 0.5.0 code,
-but the tag predates the store icon: its `icons/icon-128.png` fills the whole
-128x128 square, where `main`'s has the 16 px padding the store asks for.
+Build from `main`, or from a tag from `v0.6.0` on. The `v0.5.0` tag predates
+the store icon: its `icons/icon-128.png` fills the whole 128x128 square, where
+later commits have the 16 px padding the store asks for.
 
 It writes `build/x-slop-hide-<version>-chrome-web-store.zip` and refuses a
 manifest with a `key`, a name over 75 or a description over 132 characters, a
@@ -45,6 +45,10 @@ HIDING
 LABELS (optional)
 - Turn on Slop and Not slop buttons under replies. Slop adds the account to Also hide; Not slop adds it to Always show.
 - Labels stay in this browser. Export labels saves them to a file.
+
+SETTINGS FILES
+- Export your Always show and Also hide accounts, bot choices and tag setting to a file, or Also hide alone as a list of handles to share.
+- Import a settings file or a shared list. Import adds accounts and never removes any, shows what will change before it changes anything, and never turns muting on.
 
 MUTING (optional, off until you turn it on)
 - When you turn it on, x-slop-hide mutes the listed accounts, the accounts in your Also hide box and any bot you set to Mute on X, on your X account. It clicks X's own Mute item on x.com, in background tabs it opens and closes, one visit about every 1 to 4 minutes. You pick 25, 50 or 100 mutes a day: 25 runs whenever the browser is open; 50 and 100 run only while you have an x.com tab open.

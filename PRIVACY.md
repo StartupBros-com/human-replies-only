@@ -3,7 +3,7 @@
 x-slop-hide hides posts on x.com by accounts on a public list of AI-reply spam
 accounts. The browser extension can also mute those accounts on X, and can save
 labels you give to replies. This policy covers the extension and the userscript,
-version 0.5.0. Last updated 2026-11-09.
+version 0.6.0. Last updated 2026-11-09.
 
 ## In short
 
@@ -17,6 +17,8 @@ version 0.5.0. Last updated 2026-11-09.
   in background tabs with your x.com login and clicks X's own Mute item. X sees
   those visits and mutes as your activity.
 - Labels leave your browser only as a file, when you click **Export labels**.
+  Your account lists and bot choices leave it only as a file, when you click
+  **Export settings** or **Export Also hide as a list**.
 
 ## What it reads on x.com
 
@@ -81,6 +83,15 @@ and muted like a listed one.
 
 **Export labels** saves your labels as a `.jsonl` file through your browser's
 download. Nothing is uploaded.
+
+**Export settings** saves your **Always show** and **Also hide** accounts, your
+choice for each bot and whether to hide posts that tag a bot, as a `.json` file
+through your browser's download. **Export Also hide as a list** saves the
+**Also hide** accounts alone as a `.txt` file. Neither file holds muting on or
+off, the daily mute cap, the X handle muting runs as, the list address, pause
+or labels. **Import** reads only the file you pick, inside the extension's own
+page, and changes those same settings only after you confirm what it shows.
+Nothing is uploaded or fetched.
 
 **Links in the popup** (X's muted-words settings, an account's profile, this
 project's page) open only when you click them.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         x-slop-hide
 // @namespace    https://github.com/StartupBros-com/x-slop-hide
-// @version      0.5.0
+// @version      0.6.0
 // @description  Hides x.com posts by accounts on a self-updating AI-reply spam list. Hides only; muting is in the browser extension.
 // @license      MIT
 // @homepageURL  https://github.com/StartupBros-com/x-slop-hide
@@ -710,6 +710,175 @@
     return rows.length ? `${rows.join('\n')}\n` : '';
   }
 
+  // ------------------------------------------------------------------ settings files
+  //
+  // The extension's settings page exports and imports these. A settings file
+  // carries the two account boxes, each bot's saved choice and the tag
+  // setting, and nothing else: never muting on or off, the daily number, the
+  // account muting runs as, the list URL, pause or labels. A text file of
+  // handles, one per line, is a shared list, and import adds it to Also hide.
+  const SETTINGS_FORMAT = 'x-slop-hide-settings';
+  const SETTINGS_VERSION = 1;
+  // The only settings an import ever writes.
+  const IMPORT_KEYS = Object.freeze(['allowlist', 'extraList', 'bots', 'hideBotMentions']);
+
+  const sortedHandles = (text) => [...parseAllowlist(text)].sort();
+
+  // The object Export settings saves (as JSON).
+  function settingsExport(settings, now) {
+    const s = settings || {};
+    const bots = {};
+    for (const { handle } of BOTS) {
+      const c = botChoice(s, handle);
+      if (c) bots[handle] = c;
+    }
+    return {
+      format: SETTINGS_FORMAT,
+      version: SETTINGS_VERSION,
+      exported: utcDay(now),
+      alwaysShow: sortedHandles(s.allowlist),
+      alsoHide: sortedHandles(s.extraList),
+      bots,
+      hideBotMentions: s.hideBotMentions === true,
+    };
+  }
+
+  // Also hide as a shared list: one handle per line, the format import reads.
+  function alsoHideText(settings) {
+    const hs = sortedHandles(settings && settings.extraList);
+    return hs.length ? `${hs.join('\n')}\n` : '';
+  }
+
+  const refuse = (reason) => ({ ok: false, reason });
+
+  function handleArray(v, name) {
+    if (v === undefined) return { ok: true, handles: [] };
+    if (!Array.isArray(v)) return refuse(`"${name}" is not a list`);
+    if (v.length > DEFAULTS.maxHandles) return refuse(`"${name}" has more than ${DEFAULTS.maxHandles} accounts`);
+    const out = new Set();
+    for (const raw of v) {
+      const h = typeof raw === 'string' ? normalizeHandle(raw) : null;
+      if (!h) return refuse(`"${name}" has an entry that is not an X handle`);
+      out.add(h);
+    }
+    return { ok: true, handles: [...out].sort() };
+  }
+
+  function readSettingsJson(text) {
+    let o;
+    try {
+      o = JSON.parse(text);
+    } catch (e) {
+      return refuse('the file is not valid JSON');
+    }
+    if (!o || typeof o !== 'object' || Array.isArray(o) || o.format !== SETTINGS_FORMAT) {
+      return refuse('the file is not an x-slop-hide settings file');
+    }
+    if (o.version !== SETTINGS_VERSION) return refuse('this settings file comes from a newer or unknown version');
+    const show = handleArray(o.alwaysShow, 'alwaysShow');
+    if (!show.ok) return show;
+    const hide = handleArray(o.alsoHide, 'alsoHide');
+    if (!hide.ok) return hide;
+    const bots = {};
+    if (o.bots !== undefined) {
+      if (!o.bots || typeof o.bots !== 'object' || Array.isArray(o.bots)) return refuse('"bots" is not an object');
+      for (const [key, mode] of Object.entries(o.bots)) {
+        const h = normalizeHandle(key);
+        if (!h || !BOT_HANDLES.has(h)) return refuse('"bots" names an account that is not one of the bots');
+        if (!BOT_MODES.includes(mode)) return refuse('"bots" has a choice other than show, hide or mute');
+        bots[h] = mode;
+      }
+    }
+    if (o.hideBotMentions !== undefined && typeof o.hideBotMentions !== 'boolean') {
+      return refuse('"hideBotMentions" is not true or false');
+    }
+    // Every other key, muteEnabled, muteCap, muteAccount and feedUrl
+    // included, is ignored.
+    return { ok: true, kind: 'settings', alwaysShow: show.handles, alsoHide: hide.handles, bots, hideBotMentions: o.hideBotMentions };
+  }
+
+  function readHandleLines(text) {
+    const out = new Set();
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line || line.startsWith('#')) continue;
+      const h = normalizeHandle(line);
+      if (!h) return refuse(`line ${i + 1} is not an X handle`);
+      out.add(h);
+      if (out.size > DEFAULTS.maxHandles) return refuse(`the file has more than ${DEFAULTS.maxHandles} accounts`);
+    }
+    if (!out.size) return refuse('the file has no handles');
+    return { ok: true, kind: 'list', alwaysShow: [], alsoHide: [...out].sort(), bots: {}, hideBotMentions: undefined };
+  }
+
+  // A file the user picked, as text: a settings file (it starts with "{"),
+  // or a list of handles. Anything wrong refuses the whole file.
+  function readSettingsFile(text) {
+    const t = typeof text === 'string' ? text.replace(/^﻿/, '') : '';
+    if (!t.trim()) return refuse('the file is empty');
+    if (t.length > DEFAULTS.maxBytes) return refuse(`the file is larger than ${DEFAULTS.maxBytes / 1000000} MB`);
+    return t.trimStart().startsWith('{') ? readSettingsJson(t) : readHandleLines(t);
+  }
+
+  // What importing a read file into the current settings changes. `patch`
+  // is the one settings write, holding only IMPORT_KEYS. The boxes only gain
+  // accounts, appended to the text already there; the file's bot choices and
+  // tag setting replace the current ones. The rest describes the change:
+  // `muteTargets` are accounts muting does not reach now and would after the
+  // import (whether or not muting is on), `muteBots` the bots among them, and
+  // `staysShown` accounts added to Also hide that Always show keeps visible.
+  function importPlan(settings, file, listHandles) {
+    const s = settings || {};
+    const f = file || {};
+    const patch = {};
+    const add = (field, handles) => {
+      const have = parseAllowlist(s[field]);
+      const fresh = (handles || []).filter((h) => !have.has(h));
+      if (fresh.length) {
+        const kept = String(s[field] || '').replace(/\s+$/, '');
+        patch[field] = kept ? `${kept}\n${fresh.join('\n')}` : fresh.join('\n');
+      }
+      return fresh;
+    };
+    const addShow = add('allowlist', f.alwaysShow);
+    const addHide = add('extraList', f.alsoHide);
+    const botChanges = [];
+    const bots = Object.assign({}, s.bots && typeof s.bots === 'object' ? s.bots : {});
+    for (const { handle } of BOTS) {
+      const to = f.bots && f.bots[handle];
+      if (!BOT_MODES.includes(to)) continue;
+      const from = botChoice(s, handle);
+      if (from === to) continue;
+      bots[handle] = to;
+      botChanges.push({ handle, from, to });
+    }
+    if (botChanges.length) patch.bots = bots;
+    let mentions = null;
+    if (typeof f.hideBotMentions === 'boolean' && f.hideBotMentions !== (s.hideBotMentions === true)) {
+      patch.hideBotMentions = f.hideBotMentions;
+      mentions = f.hideBotMentions;
+    }
+    const next = Object.assign({}, s, patch);
+    const before = new Set(muteEligible(listHandles, s));
+    const muteTargets = muteEligible(listHandles, next).filter((h) => !before.has(h));
+    const allow = effectiveAllow(next);
+    return {
+      patch,
+      empty: Object.keys(patch).length === 0,
+      addShow,
+      addHide,
+      botChanges,
+      mentions,
+      muteTargets,
+      muteBots: muteTargets.filter((h) => BOT_HANDLES.has(h)),
+      staysShown: addHide.filter((h) => allow.has(h)),
+      muting: !!(s.muteEnabled && s.muteAccount),
+      muteAccount: s.muteAccount || null,
+      muteCap: muteCap(s),
+    };
+  }
+
   const api = {
     HANDLE_RE,
     DEFAULTS,
@@ -759,6 +928,13 @@
     labelPatch,
     labelsFrom,
     labelsJsonl,
+    SETTINGS_FORMAT,
+    SETTINGS_VERSION,
+    IMPORT_KEYS,
+    settingsExport,
+    alsoHideText,
+    readSettingsFile,
+    importPlan,
   };
   root.XSlopHide = api;
   if (typeof module === 'object' && module && module.exports) module.exports = api;

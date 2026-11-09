@@ -92,13 +92,15 @@ nothing carries over from an unpacked copy: not your settings, your **Always
 show** and **Also hide** boxes, the mute record or your labels. Both copies run
 until you remove one, and with muting on in both, both mute. To switch:
 
-1. In the unpacked copy's popup, copy your **Always show** and **Also hide**
-   boxes somewhere, and click **Export labels** if you keep labels. There is
-   no label import, so the file is your record of them, not a way to move
-   them.
+1. In the unpacked copy's popup, open **Your accounts**, click **Export or
+   import**, then **Export settings** (0.6.0 or later; in an older copy, copy
+   the two boxes somewhere instead). Click **Export labels** too if you keep
+   labels. There is no label import, so that file is your record of them, not
+   a way to move them.
 2. Remove the unpacked copy in `chrome://extensions`. This deletes its labels.
-3. Install the store copy, paste the two boxes back and click **Save**, then
-   set your bot rows, **Mutes a day** and, if you used it, muting again.
+3. Install the store copy and import the settings file the same way (see
+   [Export and import](#export-and-import)). Then set **Mutes a day** and, if
+   you used it, muting again: a settings file carries neither.
 
 The store copy starts a new mute record. Accounts the unpacked copy already
 muted are visited again and found already muted, without a click. Each of
@@ -133,6 +135,8 @@ whenever the tab comes back into view. The userscript does not mute.
 | Mute listed accounts on your X account | Tick **Mute listed accounts on X** (see [Muting](#muting)) | Not available |
 | Mute more accounts a day | Pick 50 or 100 under **Mutes a day** (see [How many a day](#how-many-a-day)) | Not available |
 | Label replies Slop or Not slop | Under **Label replies**, tick **Show Slop and Not slop buttons under replies on x.com** (see [Labels](#labels)) | Not available |
+| Back up or move your settings | Under **Your accounts**, click **Export or import**, then **Export settings**; import the file on the same page (see [Export and import](#export-and-import)) | Not available |
+| Share Also hide, or add a list someone shared | Under **Your accounts**, click **Export or import**, then **Export Also hide as a list**, or pick their file under **Import** | Not available |
 
 **Bots that answer when tagged**, **Your accounts** and **Label replies** start
 folded; click a heading to open it. A folded heading shows its counts, such as
@@ -395,6 +399,44 @@ labels** deletes them on its second click. Up to 2,000 labels are kept; past
 that, a new one is refused ("2000 labels saved: export and delete them to add
 more") while saved ones can still be changed.
 
+## Export and import
+
+Under **Your accounts** in the popup, **Export or import** opens a page of its
+own, the extension's options page (a file picker opened from the popup can
+close the popup). The userscript has no export or import.
+
+- **Export settings** saves `x-slop-hide-settings-YYYY-MM-DD.json`: your
+  Always show and Also hide accounts, each bot's saved choice, and whether
+  posts that tag a hidden bot are hidden. It never holds muting on or off,
+  **Mutes a day**, the account muting runs as, the list address, **Pause
+  hiding** or your labels.
+- **Export Also hide as a list** saves `x-slop-hide-also-hide-YYYY-MM-DD.txt`,
+  one handle per line. Anyone can import it into their own Also hide.
+- **Import** reads one file you pick: a settings file, or a text file of
+  handles, one per line, `@` optional, with blank lines and lines starting
+  with `#` skipped. A list file goes to Also hide.
+
+Import adds accounts and never removes one. A settings file also sets the bot
+choices and the tag setting it holds. It never turns muting on and never
+changes **Mutes a day**.
+
+Before anything changes, the page lists what the file adds and changes. While
+muting is on, it says which account muting runs as and names the accounts
+muting can newly reach, bots set to **Mute on X** included. While muting is
+off, it names the accounts muting would add if you turned it on. Nothing is
+written until you click **Import these changes**, and **Cancel** writes
+nothing. If your settings change between the preview and the click (in the
+popup, say), the page shows the new preview instead of importing.
+
+A file is refused whole, with the reason, when a line is not a handle, a bot
+choice is not show, hide or mute, its format or version is unknown, or it
+holds more than 50,000 accounts or 1 MB.
+
+Read a shared list before you import it. Every account on it is hidden, and
+muted while muting is on, including one put there by mistake. Add any you want
+to keep seeing to **Always show** first; the preview says which accounts it
+keeps shown.
+
 ## Whose list is it?
 
 The list is clankwall's, not this project's. clankwall's homepage says "Flags
@@ -519,6 +561,14 @@ its next 6-hourly refresh, or at browser start if one is due. The userscript
 stores the reason too but has no popup to show it in; while an x.com tab is
 open, it retries at most every 30 minutes until a fetch works.
 
+### Import says "Not imported: line N is not an X handle."
+
+In a list file, each line holds one handle and nothing else: letters, digits
+and `_`, up to 15 characters, with or without `@`. A note after a handle, a
+profile link or a display name refuses the whole file, so nothing is half
+imported. Put notes on lines of their own starting with `#`, fix the line
+named, and pick the file again.
+
 ### A post you want to see is hidden
 
 Add the author to **Always show these accounts**, or tick **Pause hiding**. On
@@ -610,7 +660,8 @@ No. x-slop-hide never unmutes. Unmute it on X.
 
 Remove the extension in `chrome://extensions`, or delete the script in your
 userscript manager. Hiding leaves nothing to undo. Removing the extension
-deletes your labels, so export them first if you want them. The mutes
+deletes your labels and settings, so export them first if you want them
+(**Export labels**, and **Export settings** under **Export or import**). The mutes
 x-slop-hide made stay on your X account; unmute them on X at
 `x.com/settings/muted/all`. To see
 which accounts it muted, read the record before removing the extension: click
