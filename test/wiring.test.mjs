@@ -532,7 +532,7 @@ test('userscript build: header grants and connects only what it uses', () => {
 test('userscript build: carries the manifest version, MIT licence and update URLs', () => {
   const us = buildUserscript();
   const version = JSON.parse(src('manifest.json')).version;
-  const raw = 'https://raw.githubusercontent.com/StartupBros-com/x-slop-hide/main/dist/x-slop-hide.user.js';
+  const raw = 'https://raw.githubusercontent.com/StartupBros-com/human-replies-only/main/dist/x-slop-hide.user.js';
   assert.match(us, new RegExp(`^// @version {6}${version.replace(/\./g, '\\.')}$`, 'm'));
   assert.equal(JSON.parse(src('package.json')).version, version);
   assert.match(us, /^\/\/ @license {6}MIT$/m);
@@ -831,7 +831,7 @@ test("popup: shows today's counts, the totals and why muting stopped", async () 
   assert.equal(p.document.getElementById('muteStop').textContent, 'Stopped for today: not on settings/muted/all after muting: @b');
   assert.equal(p.document.getElementById('muteNext').hidden, false, 'a stopped day says when muting starts again');
   assert.match(p.document.getElementById('muteNext').textContent, /^Muting starts again on the next UTC day\. What each reason means$/);
-  assert.equal(p.document.querySelector('#muteNext a').getAttribute('href'), 'https://github.com/StartupBros-com/x-slop-hide#muting-stopped-for-today');
+  assert.equal(p.document.querySelector('#muteNext a').getAttribute('href'), 'https://github.com/StartupBros-com/human-replies-only#muting-stopped-for-today');
 });
 
 test('popup: the bar stops at the cap, and a stop line from today hides while muting is off', async () => {
@@ -1482,7 +1482,7 @@ test('popup: labels switch on and off, export as JSON lines oldest first, and de
   assert.equal(made[0].type, 'application/x-ndjson');
   const oldestFirst = [...recs].sort((a, b) => a.at - b.at);
   assert.equal(await made[0].text(), `${oldestFirst.map((r) => JSON.stringify(r)).join('\n')}\n`);
-  assert.deepEqual(downloads, [{ href: 'blob:test/1', name: `x-slop-hide-labels-${lib.utcDay(Date.now())}.jsonl` }]);
+  assert.deepEqual(downloads, [{ href: 'blob:test/1', name: `human-replies-only-labels-${lib.utcDay(Date.now())}.jsonl` }]);
   assert.equal(p.document.querySelectorAll('a[download]').length, 0, 'the link is removed after the click');
   assert.equal($('labelsMsg').hidden, false);
   assert.equal($('labelsMsg').textContent, 'Exported 3 labels.');
@@ -1597,7 +1597,7 @@ test('settings page: export saves only the account boxes, bot choices and tag se
   assert.equal(p.$('have').textContent, 'Now: Always show 1 · Also hide 2 · 1 bot choice saved');
   p.click('exportSettings');
   await settle();
-  assert.deepEqual(p.downloads, [`x-slop-hide-settings-${lib.utcDay(Date.now())}.json`]);
+  assert.deepEqual(p.downloads, [`human-replies-only-settings-${lib.utcDay(Date.now())}.json`]);
   assert.equal(p.made[0].type, 'application/json');
   const out = JSON.parse(await p.made[0].text());
   assert.deepEqual(Object.keys(out).sort(), ['alsoHide', 'alwaysShow', 'bots', 'exported', 'format', 'hideBotMentions', 'version']);
@@ -1605,7 +1605,7 @@ test('settings page: export saves only the account boxes, bot choices and tag se
   assert.equal(p.$('exportMsg').textContent, 'Exported settings: Always show 1, Also hide 2, 1 bot choice.');
   p.click('exportList');
   await settle();
-  assert.equal(p.downloads[1], `x-slop-hide-also-hide-${lib.utcDay(Date.now())}.txt`);
+  assert.equal(p.downloads[1], `human-replies-only-also-hide-${lib.utcDay(Date.now())}.txt`);
   assert.equal(await p.made[1].text(), 'spam_a\nspam_b\n');
   assert.deepEqual(p.chrome.store['xsh:settings'], settings, 'export writes nothing');
 });

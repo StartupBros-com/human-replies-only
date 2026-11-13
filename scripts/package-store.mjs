@@ -200,7 +200,7 @@ export function packageStore({ ref = 'HEAD', out = join(ROOT, 'build') } = {}) {
   const files = ['manifest.json', ...refs.paths, ...EXTRA_FILES].sort();
   const dir = resolve(out);
   mkdirSync(dir, { recursive: true });
-  const zipPath = join(dir, `x-slop-hide-${manifest.version}-chrome-web-store.zip`);
+  const zipPath = join(dir, `human-replies-only-${manifest.version}-chrome-web-store.zip`);
   git(['archive', '--format=zip', '-o', zipPath, sha, '--', ...files]);
   const buf = readFileSync(zipPath);
   const entries = zipEntries(buf).filter((n) => !n.endsWith('/')).sort();

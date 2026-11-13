@@ -289,7 +289,7 @@
     exportUrl = URL.createObjectURL(new Blob([L.labelsJsonl(recs)], { type: 'application/x-ndjson' }));
     const a = document.createElement('a');
     a.setAttribute('href', exportUrl);
-    a.setAttribute('download', `x-slop-hide-labels-${L.utcDay(Date.now())}.jsonl`);
+    a.setAttribute('download', `human-replies-only-labels-${L.utcDay(Date.now())}.jsonl`);
     document.body.append(a);
     a.click();
     a.remove();

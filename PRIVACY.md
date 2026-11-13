@@ -1,13 +1,13 @@
 # Privacy policy
 
-x-slop-hide hides posts on x.com by accounts on a public list of AI-reply spam
-accounts. The browser extension can also mute those accounts on X, and can save
+Human Replies Only (formerly x-slop-hide) hides posts on x.com by accounts on a
+public list of AI-reply spam accounts. The browser extension can also mute those accounts on X, and can save
 labels you give to replies. This policy covers the extension and the userscript,
-version 0.6.2. Last updated 2026-11-09.
+version 0.7.0. Last updated 2026-11-12.
 
 ## In short
 
-- x-slop-hide has no account, no server, no analytics and no telemetry. Its
+- Human Replies Only has no account, no server, no analytics and no telemetry. Its
   developers receive none of the data described here.
 - The extension's own code makes one kind of network request: it downloads the
   public list from `clankwall.vogel.dev`, without cookies.
@@ -63,7 +63,7 @@ start when a refresh is due, every 6 hours, and when you click **Refresh list
 now** in the popup. The request carries no cookies, no identifiers and no body. Like any
 web request, it reaches that server with your IP address and your browser's
 standard request headers. clankwall is run by a third party, not by
-x-slop-hide's developers; see its site for how it handles requests. The
+Human Replies Only's developers; see its site for how it handles requests. The
 userscript downloads the same file through your userscript manager, marked
 anonymous so no cookies are sent.
 
@@ -108,7 +108,7 @@ remove the extension. A file you exported stays where you saved it.
 
 ## Selling and sharing
 
-x-slop-hide does not sell, transfer or share user data. Its developers do not
+Human Replies Only does not sell, transfer or share user data. Its developers do not
 receive any. The use of information received from the extension's handling of
 user data complies with the
 [Chrome Web Store User Data Policy](https://developer.chrome.com/docs/webstore/program-policies),
@@ -131,4 +131,4 @@ including the Limited Use requirements.
 
 This policy lives in the project's repository, and every change to it is in the
 repository's history. Questions and requests go to
-[GitHub issues](https://github.com/StartupBros-com/x-slop-hide/issues).
+[GitHub issues](https://github.com/StartupBros-com/human-replies-only/issues).

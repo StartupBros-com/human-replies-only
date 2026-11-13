@@ -1,4 +1,4 @@
-// Shared, side-effect-free logic for x-slop-hide.
+// Shared, side-effect-free logic for Human Replies Only (formerly x-slop-hide).
 //
 // Loaded three ways, so it must not depend on any one environment:
 //   - content script: listed before content.js in manifest.json (shares the isolated world)
@@ -54,6 +54,8 @@
     labelTextMax: 1000,
   });
 
+  // The xsh: prefix is from before the rename. Changing it would strand every
+  // installed copy's settings, lists, mute record and labels.
   const STORAGE_KEYS = Object.freeze({
     list: 'xsh:list',
     settings: 'xsh:settings',
@@ -644,7 +646,7 @@
       list: new Set(c.handles || []).has(handle) ? host : null,
       extra: parseAllowlist(s.extraList).has(handle),
       allow: parseAllowlist(s.allowlist).has(handle),
-      // Whether x-slop-hide hides this account's replies on that page, with
+      // Whether Human Replies Only hides this account's replies on that page, with
       // hiding not paused. Posts hidden for tagging a bot are not counted.
       hidden: shouldHide(handle, {
         list: effectiveList(c.handles, s),
@@ -693,6 +695,8 @@
   // setting, and nothing else: never muting on or off, the daily number, the
   // account muting runs as, the list URL, pause or labels. A text file of
   // handles, one per line, is a shared list, and import adds it to Also hide.
+  // The tag keeps the name from before the rename: 0.7.0 must import a 0.6.x
+  // export, and 0.6.x a 0.7.0 one.
   const SETTINGS_FORMAT = 'x-slop-hide-settings';
   const SETTINGS_VERSION = 1;
   // The only settings an import ever writes.
@@ -748,7 +752,7 @@
       return refuse('the file is not valid JSON');
     }
     if (!o || typeof o !== 'object' || Array.isArray(o) || o.format !== SETTINGS_FORMAT) {
-      return refuse('the file is not an x-slop-hide settings file');
+      return refuse('the file is not a Human Replies Only settings file');
     }
     if (o.version !== SETTINGS_VERSION) return refuse('this settings file comes from a newer or unknown version');
     const show = handleArray(o.alwaysShow, 'alwaysShow');
