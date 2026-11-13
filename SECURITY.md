@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Report it privately through GitHub:
-[open a security advisory](https://github.com/StartupBros-com/x-slop-hide/security/advisories/new).
+[open a security advisory](https://github.com/StartupBros-com/human-replies-only/security/advisories/new).
 Please don't open a public issue for a vulnerability.
 
 Include the version (on your browser's extensions page, or `@version` in the
@@ -19,7 +19,7 @@ released together, so update both.
 The code in this repository: the extension, the userscript, and the scripts
 that build and package them. For example:
 
-- a page, a list update or another extension getting x-slop-hide to run code,
+- a page, a list update or another extension getting Human Replies Only to run code,
   read its stored data, or change its settings;
 - muting an account the settings did not allow, or muting from an account other
   than the one the popup names after "Muting as";

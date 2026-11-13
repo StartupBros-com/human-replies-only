@@ -82,7 +82,7 @@ test('readSettingsFile refuses a bad file whole, with the reason', () => {
     ['  \n ', 'the file is empty'],
     ['{"format": "x-slop-hide-settings", ', 'the file is not valid JSON'],
     ['{"labels": 1}\n{"labels": 2}\n', 'the file is not valid JSON'],
-    [JSON.stringify({ format: 'something-else', version: 1 }), 'the file is not an x-slop-hide settings file'],
+    [JSON.stringify({ format: 'something-else', version: 1 }), 'the file is not a Human Replies Only settings file'],
     ['[]', 'line 1 is not an X handle'],
     [JSON.stringify(file({ version: 2 })), 'this settings file comes from a newer or unknown version'],
     [JSON.stringify(file({ version: '1' })), 'this settings file comes from a newer or unknown version'],

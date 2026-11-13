@@ -2,27 +2,29 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>x-slop-hide</title>
+<title>Human Replies Only</title>
 <style>
-  /* The palette comes from the icon: ink, white and rose. Rose marks the
-     brand and muting, the one feature that acts on your X account; errors are
-     orange-red so they never read as muting. Text pairs are at least 4.5:1,
-     control edges, switch tracks and the focus ring at least 3:1 against the
-     page, in both themes. System fonts: the popup ships no font file. */
+  /* The palette comes from the icon: rose and white, with the ink and greys
+     tinted toward the rose. Rose marks the brand (the name and the tab count)
+     and muting, the one feature that acts on your X account. Orange-red marks
+     what needs care: errors, the X rules warning and a pause left on, so none
+     of them reads as muting. Text pairs are at least 4.5:1, control edges,
+     switch tracks and the focus ring at least 3:1 against the page, in both
+     themes. System fonts: the popup ships no font file. */
   :root {
     color-scheme: light dark;
-    --bg: #ffffff; --fg: #111827; --muted: #4b5563; --rule: #d1d5db; --edge: #6b7280;
-    --hover: #f3f4f6; --fg-hover: #374151;
+    --bg: #fffcfc; --fg: #1f1719; --muted: #5e5054; --rule: #e6dcdf; --edge: #8a787d;
+    --hover: #f6eef0; --fg-hover: #3f3337;
     --rose: #e11d48; --bad: #c2410c; --focus: #2563eb;
     --thumb: #ffffff; --thumb-on: #ffffff;
     --outline: oklch(0 0 0 / 0.1);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #111827; --fg: #f3f4f6; --muted: #9ca3af; --rule: #374151; --edge: #6b7280;
-      --hover: #1f2937; --fg-hover: #d1d5db;
+      --bg: #1b1517; --fg: #f6eef0; --muted: #b4a6aa; --rule: #3d3236; --edge: #857479;
+      --hover: #271f22; --fg-hover: #e3d8db;
       --rose: #fb7185; --bad: #fb923c; --focus: #93c5fd;
-      --thumb: #f3f4f6; --thumb-on: #111827;
+      --thumb: #f6eef0; --thumb-on: #1b1517;
       --outline: oklch(1 0 0 / 0.1);
     }
   }
@@ -47,7 +49,7 @@
   /* ---- header */
   .top { display: flex; align-items: center; gap: 8px; min-height: 32px; }
   .top img { display: block; flex: none; border-radius: 5px; outline: 1px solid var(--outline); outline-offset: -1px; }
-  .top h1 { flex: 1; min-width: 0; font-size: 16px; line-height: 1.25; font-weight: 650; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .top h1 { flex: 1; min-width: 0; font-size: 16px; line-height: 1.25; font-weight: 650; letter-spacing: -0.01em; color: var(--rose); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pause { font-size: 13px; color: var(--muted); }
 
   /* ---- switches: native checkboxes, drawn with the 6px control radius */
@@ -65,11 +67,13 @@
   input[role='switch']:checked { background: var(--fg); }
   input[role='switch']:checked::before { translate: 16px 0; background: var(--thumb-on); }
   #mute:checked { background: var(--rose); }
+  /* A pause left on is the one header state that needs noticing on every tab. */
+  #paused:checked { background: var(--bad); }
 
   /* ---- this tab: the number first */
   .status { margin-top: 12px; }
   .hero { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
-  .hero .num { font-size: 36px; line-height: 1.1; font-weight: 700; letter-spacing: -0.02em; }
+  .hero .num { font-size: 32px; line-height: 1.1; font-weight: 800; letter-spacing: -0.02em; color: var(--rose); }
   .hero .what { font-weight: 600; }
   .hero.say { display: block; text-wrap: balance; }
   .hero.say { font-size: 16px; line-height: 1.35; font-weight: 600; }
@@ -111,8 +115,11 @@
 
   /* ---- muting: the one section that acts on X gets the heavy rule */
   .muting { margin-top: 16px; padding-top: 12px; border-top: 2px solid var(--fg); }
-  .rules { margin-top: 8px; padding: 8px 12px; font-size: 13px; line-height: 1.45; border: 1px solid var(--fg); border-radius: 6px; text-wrap: pretty; }
-  .rules strong { font-weight: 650; }
+  .rules {
+    margin-top: 8px; padding: 8px 12px; font-size: 13px; line-height: 1.45; text-wrap: pretty;
+    border: 1px solid var(--rule); border-left: 4px solid var(--bad); border-radius: 6px; background: var(--hover);
+  }
+  .rules strong { font-weight: 650; color: var(--bad); }
   #muteOn { margin-top: 12px; }
   #muteWho { font-weight: 500; }
   progress { appearance: none; display: block; width: 100%; height: 8px; margin: 8px 0 4px; border: 0; border-radius: 4px; background: var(--rule); overflow: hidden; }
@@ -168,7 +175,10 @@
   @media (forced-colors: active) {
     input[role='switch'] { border: 2px solid ButtonText; background: Canvas; }
     input[role='switch']::before { top: 1px; left: 1px; background: ButtonText; }
-    input[role='switch']:checked, #mute:checked { background: Highlight; border-color: Highlight; }
+    /* The id rules above outrank this attribute rule, so each is named here,
+       or a checked Mute or Pause would draw as an unchecked track. The border
+       stays ButtonText: some themes put Highlight close to Canvas. */
+    input[role='switch']:checked, #mute:checked, #paused:checked { background: Highlight; border-color: ButtonText; }
     input[role='switch']:checked::before { background: HighlightText; }
     progress { border: 1px solid ButtonText; }
     progress::-webkit-progress-value { background: Highlight; }
@@ -181,7 +191,7 @@
 <body>
 <header class="top">
   <img src="../icons/icon.svg" width="24" height="24" alt="">
-  <h1 translate="no">x-slop-hide</h1>
+  <h1 translate="no">Human Replies Only</h1>
   <label class="sw pause"><span>Pause hiding</span><input type="checkbox" id="paused" role="switch"></label>
 </header>
 
@@ -210,7 +220,7 @@
     <p id="muteToday" class="small"></p>
     <p id="muteTotals" class="small muted"></p>
   </div>
-  <div role="status"><p id="muteStop" class="bad" hidden></p><p id="muteNext" class="hint" hidden>Muting starts again on the next UTC day. <a href="https://github.com/StartupBros-com/x-slop-hide#muting-stopped-for-today" target="_blank" rel="noopener">What each reason means</a></p></div>
+  <div role="status"><p id="muteStop" class="bad" hidden></p><p id="muteNext" class="hint" hidden>Muting starts again on the next UTC day. <a href="https://github.com/StartupBros-com/human-replies-only#muting-stopped-for-today" target="_blank" rel="noopener">What each reason means</a></p></div>
   <div class="caprow">
     <label for="muteCap">Mutes a day</label>
     <select id="muteCap">
@@ -268,7 +278,7 @@
 </div>
 </main>
 
-<footer>Hiding works in this browser only. <a href="https://github.com/StartupBros-com/x-slop-hide#readme" target="_blank" rel="noopener">How it works</a></footer>
+<footer>Hiding works in this browser only. <a href="https://github.com/StartupBros-com/human-replies-only#readme" target="_blank" rel="noopener">How it works</a></footer>
 <script src="lib.js"></script>
 <script src="popup.js"></script>
 </body>

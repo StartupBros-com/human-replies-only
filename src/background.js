@@ -1,4 +1,4 @@
-// x-slop-hide background service worker: keeps the handle list fresh in
+// Human Replies Only background service worker: keeps the handle list fresh in
 // chrome.storage.local, and, when the user has turned muting on, mutes listed
 // accounts one at a time in background tabs it opens and closes itself. Its
 // only network request is the feed URL; muting goes through X's own page.
@@ -101,7 +101,7 @@ async function forgetJobTab(id) {
 }
 
 // One tab's answer to "is this an x.com tab of the user's own?": true only
-// from an x-slop-hide content script that was not given a job. A tab with
+// from a Human Replies Only content script that was not given a job. A tab with
 // no content script (any other site) rejects, as does one slower than
 // PRESENT_TIMEOUT_MS.
 function askTab(tabId) {

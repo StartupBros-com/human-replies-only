@@ -1,8 +1,11 @@
-![x-slop-hide: hide, don't block. The same reply thread twice: on x.com with the posts by listed accounts marked, and with x-slop-hide, where those posts are gone.](gh_og_share_image.png)
+![Human Replies Only: hide, don't block. The same reply thread twice: on x.com with the posts by listed accounts marked, and with Human Replies Only, where those posts are gone.](gh_og_share_image.png)
 
-# x-slop-hide
+# Human Replies Only
 
-x-slop-hide hides posts on x.com whose author is on
+Formerly x-slop-hide. The project, its repository and the extension were
+renamed in 0.7.0; links to the old repository redirect here.
+
+Human Replies Only hides posts on x.com whose author is on
 [clankwall](https://clankwall.vogel.dev/)'s public list of AI-reply spam
 accounts, and can also mute those accounts on your X account. You can add
 accounts of your own, choose Show, Hide or Mute for each of six answer bots
@@ -23,34 +26,34 @@ it on.
 The list is read from `https://clankwall.vogel.dev/api/usernames.txt`, the
 "Plain text" link under clankwall's "AI flags" heading. It held 369 handles on
 2026-11-03, 767 on 2026-11-06 and 773 on 2026-11-08. clankwall's separate
-"Spam flags" table (2,738 accounts on 2026-11-06) is not used. x-slop-hide
+"Spam flags" table (2,738 accounts on 2026-11-06) is not used. Human Replies Only
 does not maintain the list; see [Whose list is it?](#whose-list-is-it).
 
 To install, open the
-[userscript](https://raw.githubusercontent.com/StartupBros-com/x-slop-hide/main/dist/x-slop-hide.user.js)
+[userscript](https://raw.githubusercontent.com/StartupBros-com/human-replies-only/main/dist/x-slop-hide.user.js)
 in a userscript manager (tested with Violentmonkey; Tampermonkey is untested),
 or load the Chrome extension unpacked. Both are under [Install](#install). Only
 the extension mutes; the userscript hides.
 
 ## On a real thread
 
-On 2026-11-03, on a reply thread with 251 replies, x-slop-hide hid 12 of the
+On 2026-11-03, on a reply thread with 251 replies, Human Replies Only hid 12 of the
 118 distinct posts that loaded. All 12 were by listed authors, and no post by a
 listed author was left showing. [docs/TESTING.md](docs/TESTING.md) has the
 method and three more pages.
 
 ## Hide, mute or block
 
-Hiding acts only on the page in your browser. x-slop-hide's muting, and X's own
-Mute and Block, act on your X account.
+Hiding acts only on the page in your browser. The extension's muting, and X's
+own Mute and Block, act on your X account.
 
-| | Hiding | Muting with x-slop-hide | Mute on X | Block on X |
+| | Hiding | Muting with Human Replies Only | Mute on X | Block on X |
 |---|---|---|---|---|
 | Changes your X account | No | Yes: it is X's Mute | Yes | Yes |
 | Applies in the X app | No | Yes | Yes | Yes |
 | Covering a list of hundreds | Install once; the list refreshes itself | 25 accounts a day by default, so the 773 listed on 2026-11-08 take about a month; 8 days at 100 a day | Mute each account from its post or profile | Block each account from its post or profile |
 | The account can find out | No | No, as with Mute on X | No: "Muted accounts will not know that you've muted them" | Yes: if it visits your profile, "they will see they have been blocked" |
-| Undo | Pause, or add the handle to Always show | Unmute each account on X; x-slop-hide never unmutes | Unmute each account | Unblock each account |
+| Undo | Pause, or add the handle to Always show | Unmute each account on X; Human Replies Only never unmutes | Unmute each account | Unblock each account |
 
 The Mute and Block columns come from X's help pages on
 [muting](https://help.x.com/en/using-x/x-mute) and
@@ -63,15 +66,15 @@ because the mutes are X's own.
 ### Extension (Chrome or another Chromium browser, desktop)
 
 1. Download the `.zip` from the
-   [latest release](https://github.com/StartupBros-com/x-slop-hide/releases/latest)
-   and unzip it. Or `git clone https://github.com/StartupBros-com/x-slop-hide`
+   [latest release](https://github.com/StartupBros-com/human-replies-only/releases/latest)
+   and unzip it. Or `git clone https://github.com/StartupBros-com/human-replies-only`
    for the code on `main`, which can be ahead of the release.
 2. Open `chrome://extensions` (`brave://extensions` in Brave) and turn on
    **Developer mode**.
 3. Click **Load unpacked** and pick the folder that contains `manifest.json`.
 4. Open x.com, then click the extension's icon: a red square with a
    crossed-out speech bubble. If it is not on the toolbar, open the
-   puzzle-piece **Extensions** button and click the pin next to x-slop-hide.
+   puzzle-piece **Extensions** button and click the pin next to Human Replies Only.
    The popup shows how many accounts are listed and when the list was last
    updated.
 
@@ -80,13 +83,14 @@ files into the folder you loaded before, replacing the old ones (or `git pull`
 in a clone), then click the reload arrow on the extension's card. Your
 settings, lists and mute record stay. The browser keys an unpacked extension's
 storage to its folder, so loading a new version from a different folder adds a
-second copy that has none of them, and leaves both running. The list itself
-refreshes without any of this: on install, on browser start when it is due,
+second copy that has none of them, and leaves both running. That holds across
+the rename too: copy 0.7.0 into the folder you loaded x-slop-hide from. The list
+itself refreshes without any of this: on install, on browser start when it is due,
 and every 6 hours.
 
 #### Moving to a web store copy
 
-x-slop-hide is not in a web store yet. When it is, a store copy will be a
+Human Replies Only is not in a web store yet. When it is, a store copy will be a
 different extension to the browser, with its own id and its own storage, so
 nothing carries over from an unpacked copy: not your settings, your **Always
 show** and **Also hide** boxes, the mute record or your labels. Both copies run
@@ -112,8 +116,10 @@ muted yet. Mutes already made stay on your X account either way.
 
 Install a userscript manager (the script was tested in Violentmonkey 2.50.0;
 Tampermonkey is untested), then open
-<https://raw.githubusercontent.com/StartupBros-com/x-slop-hide/main/dist/x-slop-hide.user.js>.
-The manager offers to install it. In Chrome and other Chromium browsers, the
+<https://raw.githubusercontent.com/StartupBros-com/human-replies-only/main/dist/x-slop-hide.user.js>.
+The manager offers to install it. Inside the manager the script keeps its old
+name, x-slop-hide, and its old namespace: managers know a script by those two,
+and a renamed script can install as a second copy instead of updating. In Chrome and other Chromium browsers, the
 manager also needs **Allow User Scripts** turned on under **Details** on its
 card in `chrome://extensions`; it is off in a new profile.
 
@@ -214,7 +220,7 @@ which named the account being answered.
 
 All of this applies in this browser only. To keep a bot's replies out of the
 X apps as well, add its handle (such as @grok) as a
-[muted word](https://x.com/settings/muted_keywords) on X; x-slop-hide does not
+[muted word](https://x.com/settings/muted_keywords) on X; Human Replies Only does not
 add muted words.
 
 ## Muting
@@ -228,15 +234,15 @@ Under "Don't!", X's
 list: "Use non-API-based forms of automation, such as scripting the X website.
 The use of these techniques may result in the permanent suspension of your
 account." (read on 2026-11-06, unchanged on 2026-11-08). Muting with
-x-slop-hide scripts the X website, and the popup says so under the switch.
+Human Replies Only scripts the X website, and the popup says so under the switch.
 Turn it on only if you accept that risk for the account you mute from.
 
 A listing can be a mistake (clankwall's homepage says "Flags aren’t proof of
-AI use."), and x-slop-hide mutes every listed account it reaches, including
+AI use."), and Human Replies Only mutes every listed account it reaches, including
 one listed by mistake. Accounts you follow are skipped. Look through the
 [list](https://clankwall.vogel.dev/api/usernames.txt) for accounts you know
 and add them to **Always show** first: undoing a mute means unmuting the
-account on X yourself, because x-slop-hide never unmutes.
+account on X yourself, because Human Replies Only never unmutes.
 
 ### Turning it on
 
@@ -262,7 +268,7 @@ and its tab closed. So one more mute can land just after you untick.
   is, it opens the account's profile in a new background tab. The tab shows in
   your tab strip but never takes focus. Leave it alone: closing it counts as a
   failed visit.
-- In that tab, x-slop-hide waits for one of the account's own posts with a ⋯
+- In that tab, Human Replies Only waits for one of the account's own posts with a ⋯
   button, opens that menu, and clicks the item labelled exactly
   "Mute @handle" (or "Mute"). It waits for X's "has been muted" notice, then
   closes the tab.
@@ -284,9 +290,9 @@ accounts**, and bots whose row says **Mute on X**. It never mutes a bot left at
 **Show** or **Hide here**, including @grok, which is on the list (muting it
 account-wide is a much bigger step than hiding its replies); an account in
 Always show; an account you follow; or someone whose post was hidden only for
-tagging a bot. When X's menu offers "Unfollow @handle", x-slop-hide
+tagging a bot. When X's menu offers "Unfollow @handle", Human Replies Only
 records that you follow the account and moves on. An account that is already
-muted is recorded without a click. x-slop-hide never unmutes and never blocks.
+muted is recorded without a click. Human Replies Only never unmutes and never blocks.
 
 ### How many a day
 
@@ -296,7 +302,7 @@ Under **Mutes a day** the popup offers 25, 50 and 100.
   loaded, as in earlier versions.
 - At 50 or 100, a mute visit starts only while you have x.com open in a tab of
   your own. Before each visit, the background worker asks your open tabs, and
-  goes ahead only if x-slop-hide's script on an x.com page answers within
+  goes ahead only if the extension's script on an x.com page answers within
   1.5 s. The tabs it opens for its own visits never count, nor do tabs the
   browser has discarded to save memory. Without such a tab it waits; a check of
   `x.com/settings/muted/all` that is due still runs.
@@ -322,7 +328,7 @@ with the reason, when:
 - the tab is logged out, or logged in as a different account from the one
   muting was turned on from;
 - the ⋯ menu does not have exactly one Mute item, or X asks for a confirmation
-  (x-slop-hide leaves it unanswered);
+  (Human Replies Only leaves it unanswered);
 - a check does not find a new mute on `x.com/settings/muted/all`, or cannot
   read that page.
 
@@ -396,10 +402,10 @@ A record holds:
 | `page` | The post page it was labelled on, or `null` |
 | `list` | The list's host, such as `clankwall.vogel.dev`, when the list had the account; otherwise `null` |
 | `extra`, `allow` | Whether the account was in Also hide or Always show before this click |
-| `hidden` | Whether x-slop-hide hid the account's posts on that page then, leaving out Pause and tag hiding |
+| `hidden` | Whether Human Replies Only hid the account's posts on that page then, leaving out Pause and tag hiding |
 
 **Export labels** saves them all as a JSON Lines file, one record per line,
-oldest first, named `x-slop-hide-labels-YYYY-MM-DD.jsonl`. **Delete all
+oldest first, named `human-replies-only-labels-YYYY-MM-DD.jsonl`. **Delete all
 labels** deletes them on its second click. Up to 2,000 labels are kept; past
 that, a new one is refused ("2000 labels saved: export and delete them to add
 more") while saved ones can still be changed.
@@ -410,12 +416,12 @@ Under **Your accounts** in the popup, **Export or import** opens a page of its
 own, the extension's options page (a file picker opened from the popup can
 close the popup). The userscript has no export or import.
 
-- **Export settings** saves `x-slop-hide-settings-YYYY-MM-DD.json`: your
+- **Export settings** saves `human-replies-only-settings-YYYY-MM-DD.json`: your
   Always show and Also hide accounts, each bot's saved choice, and whether
   posts that tag a hidden bot are hidden. It never holds muting on or off,
   **Mutes a day**, the account muting runs as, the list address, **Pause
   hiding** or your labels.
-- **Export Also hide as a list** saves `x-slop-hide-also-hide-YYYY-MM-DD.txt`,
+- **Export Also hide as a list** saves `human-replies-only-also-hide-YYYY-MM-DD.txt`,
   one handle per line. Anyone can import it into their own Also hide.
 - **Import** reads one file you pick: a settings file, or a text file of
   handles, one per line, `@` optional, with blank lines and lines starting
@@ -447,16 +453,16 @@ keeps shown.
 ## Whose list is it?
 
 The list is clankwall's, not this project's. clankwall's homepage says "Flags
-aren’t proof of AI use." and states no licence or uptime terms. x-slop-hide
+aren’t proof of AI use." and states no licence or uptime terms. Human Replies Only
 fetches it at run time and does not copy it into this repository.
 
 If you think an account is listed by mistake, clankwall's homepage has a
 Request removal form (it says requests are "Logged for review, not removed
 automatically.") and links dispute-spam@ryan.ceo (read on 2026-11-08).
-x-slop-hide cannot remove anyone from the list. To see an account anyway, add
+Human Replies Only cannot remove anyone from the list. To see an account anyway, add
 it to Always show; that also keeps it from being muted.
 
-x-slop-hide is not affiliated with X Corp or with clankwall.
+Human Replies Only is not affiliated with X Corp or with clankwall.
 
 ## How list updates stay safe
 
@@ -488,7 +494,7 @@ The privacy policy, with what each storage key holds, is
 - At 50 or 100 mutes a day, before each visit the worker lists your open tabs
   and asks each one whether it is an x.com tab of yours. It uses only each
   tab's id and whether the browser has discarded it, never its address or
-  title, and only x-slop-hide's script on an x.com page answers.
+  title, and only the extension's script on an x.com page answers.
 - It clicks only in a tab the background worker opened for a visit. The worker
   hands that tab its job once, so a reload of the tab does not click again.
 - The one network request the extension's own code sends is the feed fetch,
@@ -593,6 +599,8 @@ reads (see [Limits](#limits)). Please open an issue.
 - The feed lists handles, not accounts. An account that renames itself
   escapes until the list catches up, and a handle that is released and
   re-registered would hide its new owner, and with muting on, mute it.
+- The name is the aim, not a promise. Only accounts on the list are hidden;
+  a reply by an account that is not on it stays, however it was written.
 - The list is someone else's judgement. If the feed goes away, the last good
   list stays in use.
 - Hiding only works in a browser where it is installed, so it never covers the
@@ -620,10 +628,10 @@ reads (see [Limits](#limits)). Please open an issue.
   and muting stops for the day.
 - The check reads only the top of `x.com/settings/muted/all`. In a background
   tab on 2026-11-06, X drew its first 7 to 9 rows. Mutes made elsewhere between
-  checks (by hand, in the X app, or by another tool) push x-slop-hide's newest
-  mutes down that list, and a mute that is there but not drawn reads as missing
+  checks (by hand, in the X app, or by another tool) push the extension's
+  newest mutes down that list, and a mute that is there but not drawn reads as missing
   and stops the day. Don't mute by hand or run another muting tool while
-  x-slop-hide is muting.
+  Human Replies Only is muting.
 - Muting runs only while the browser is open with the extension loaded and
   logged in to x.com. It picks up again the next time the browser runs.
 - At 50 or 100 a day, any x.com tab of yours counts as "x.com open", including
@@ -631,7 +639,7 @@ reads (see [Limits](#limits)). Please open an issue.
   such a tab is open, not that you are looking at it.
 - The clicks are script events (their `isTrusted` is false). X's menu accepted
   them on 2026-11-06, but X can change its menu or how it treats such clicks at
-  any time. A changed menu stops muting for the day; x-slop-hide does not
+  any time. A changed menu stops muting for the day; Human Replies Only does not
   click anything else instead.
 
 ## FAQ
@@ -648,7 +656,7 @@ Tampermonkey.
 ### Does it work on my phone?
 
 Hiding cannot reach the X app, and it has not been tried in a mobile browser.
-The mutes x-slop-hide makes are X's own, so they apply in the X app too.
+The mutes Human Replies Only makes are X's own, so they apply in the X app too.
 Muting itself runs from the extension in a desktop browser.
 
 ### Can I hide an account that is not on the list?
@@ -662,7 +670,7 @@ instead (see [Bots](#bots)), which has **Hide here**.
 
 ### If an account leaves the list, is it unmuted?
 
-No. x-slop-hide never unmutes. Unmute it on X.
+No. Human Replies Only never unmutes. Unmute it on X.
 
 ### How do I remove it?
 
@@ -670,7 +678,7 @@ Remove the extension in `chrome://extensions`, or delete the script in your
 userscript manager. Hiding leaves nothing to undo. Removing the extension
 deletes your labels and settings, so export them first if you want them
 (**Export labels**, and **Export settings** under **Export or import**). The mutes
-x-slop-hide made stay on your X account; unmute them on X at
+Human Replies Only made stay on your X account; unmute them on X at
 `x.com/settings/muted/all`. To see
 which accounts it muted, read the record before removing the extension: click
 **service worker** on its card in `chrome://extensions` and, in the console

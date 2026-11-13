@@ -10,10 +10,16 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(join(root, p), 'utf8');
 const manifest = JSON.parse(read('manifest.json'));
 
-const REPO = 'https://github.com/StartupBros-com/x-slop-hide';
+const REPO = 'https://github.com/StartupBros-com/human-replies-only';
+// Userscript managers know a script by @name plus @namespace, and Tampermonkey
+// installs a script whose pair changed as a second copy instead of updating
+// it. Both stay as 0.6.x shipped them: the name before the rename and the old
+// repository URL. The new name goes in @name:en. The file path stays too, so
+// installed copies keep finding updates at the URL they were installed from.
+const NAMESPACE = 'https://github.com/StartupBros-com/x-slop-hide';
 // Managers re-download from here and install it only when @version is higher,
 // so a release bumps manifest.json's version.
-const RAW = 'https://raw.githubusercontent.com/StartupBros-com/x-slop-hide/main/dist/x-slop-hide.user.js';
+const RAW = 'https://raw.githubusercontent.com/StartupBros-com/human-replies-only/main/dist/x-slop-hide.user.js';
 // Not the manifest's: the userscript only hides. Muting needs background tabs
 // the extension opens and closes, which userscript managers do not provide.
 const DESCRIPTION = 'Hides x.com posts by accounts on a self-updating AI-reply spam list. Hides only; muting is in the browser extension.';
@@ -22,7 +28,8 @@ export function buildUserscript() {
   const header = [
     '// ==UserScript==',
     '// @name         x-slop-hide',
-    `// @namespace    ${REPO}`,
+    '// @name:en      Human Replies Only',
+    `// @namespace    ${NAMESPACE}`,
     `// @version      ${manifest.version}`,
     `// @description  ${DESCRIPTION}`,
     '// @license      MIT',

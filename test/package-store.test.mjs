@@ -88,7 +88,7 @@ test('the zip built from HEAD holds the manifest at its root, LICENSE and the lo
   try {
     const r = packageStore({ ref: 'HEAD', out });
     assert.deepEqual(r.entries, ['LICENSE', 'manifest.json', ...LOADED].sort());
-    assert.match(r.zipPath, /x-slop-hide-\d+\.\d+\.\d+-chrome-web-store\.zip$/);
+    assert.match(r.zipPath, /human-replies-only-\d+\.\d+\.\d+-chrome-web-store\.zip$/);
     assert.match(r.sha256, /^[0-9a-f]{64}$/);
   } finally {
     rmSync(out, { recursive: true, force: true });
