@@ -10,7 +10,7 @@
     "package:store": "node scripts/package-store.mjs",
     "check": "node scripts/build-userscript.mjs --check && node --check dist/x-slop-hide.user.js && node --test 'test/*.test.mjs'"
   },
-  "packageManager": "pnpm@11.28.11",
+  "packageManager": "pnpm@12.17.0",
   "devDependencies": {
     "linkedom": "^0.18.15",
     "playwright-core": "1.65.0"
