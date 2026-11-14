@@ -139,7 +139,7 @@ function frame(title, sub, note, body) {
   return (
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><style>${css}</style></head><body>` +
     `<header><div><h1>${esc(title)}</h1><p class="sub">${esc(sub)}</p>${note ? `<p class="note">${esc(note)}</p>` : ''}</div>` +
-    `<div class="brand"><img src="${iconUrl}" width="36" height="36" alt="">Human Replies Only</div></header>${body}</body></html>`
+    `<div class="brand"><img src="${iconUrl}" width="36" height="36" alt="">AI Anti-Slop</div></header>${body}</body></html>`
   );
 }
 
@@ -172,7 +172,7 @@ const tile = () =>
   '<!doctype html><html lang="en"><head><meta charset="utf-8"><style>' +
   "html,body{margin:0}body{width:440px;height:280px;overflow:hidden;background:#111827;display:flex;align-items:center;gap:20px;padding:0 30px;box-sizing:border-box;font-family:system-ui,-apple-system,'Segoe UI',sans-serif}" +
   '.n{color:#fff;font-weight:800;font-size:34px;letter-spacing:-0.01em}.t{color:#d1d5db;font-size:18px;line-height:1.3;margin-top:6px}' +
-  `</style></head><body><img src="${iconUrl}" width="80" height="80" alt=""><div><div class="n">Human Replies Only</div><div class="t">Hide AI reply spam on x.com</div></div></body></html>`;
+  `</style></head><body><img src="${iconUrl}" width="80" height="80" alt=""><div><div class="n">AI Anti-Slop</div><div class="t">Hide AI spam accounts on X</div></div></body></html>`;
 
 const iconPage = () =>
   '<!doctype html><html><head><style>html,body{margin:0;background:transparent}body{width:128px;height:128px;display:flex;align-items:center;justify-content:center}</style></head>' +
@@ -377,7 +377,7 @@ try {
   };
   await shoot(
     'screenshot-1-hide.png',
-    frame('Hide AI reply spam on x.com', 'Posts by accounts on the clankwall list, or by accounts you add, are hidden from the page.', 'Example thread with made-up accounts.', panel(paused, 40, 580, ['Paused', '#d97706']) + panel(on, 660, 580, ['Hiding on', '#e11d48'])),
+    frame('Hide AI spam accounts on X', 'Posts by accounts on the clankwall list, or by accounts you add, are hidden from the page.', 'Example thread with made-up accounts.', panel(paused, 40, 580, ['Paused', '#d97706']) + panel(on, 660, 580, ['Hiding on', '#e11d48'])),
     1280,
     800,
   );

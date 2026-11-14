@@ -75,7 +75,7 @@
     const { settings } = await current();
     const now = Date.now();
     const out = L.settingsExport(settings, now);
-    download(`${JSON.stringify(out, null, 2)}\n`, 'application/json', `human-replies-only-settings-${L.utcDay(now)}.json`);
+    download(`${JSON.stringify(out, null, 2)}\n`, 'application/json', `ai-anti-slop-settings-${L.utcDay(now)}.json`);
     note(
       $('exportMsg'),
       `Exported settings: Always show ${out.alwaysShow.length}, Also hide ${out.alsoHide.length}, ` +
@@ -87,7 +87,7 @@
     const { settings } = await current();
     const text = L.alsoHideText(settings);
     if (!text) return note($('exportMsg'), 'Also hide is empty, so there is no list to export.');
-    download(text, 'text/plain', `human-replies-only-also-hide-${L.utcDay(Date.now())}.txt`);
+    download(text, 'text/plain', `ai-anti-slop-also-hide-${L.utcDay(Date.now())}.txt`);
     note($('exportMsg'), `Exported Also hide as a list of ${plural(L.parseAllowlist(settings.extraList).size, 'account', 'accounts')}.`);
   });
 

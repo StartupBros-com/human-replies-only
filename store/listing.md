@@ -1,6 +1,6 @@
 # Chrome Web Store listing
 
-What to enter in the Chrome Web Store developer dashboard for Human Replies Only 0.7.0,
+What to enter in the Chrome Web Store developer dashboard for AI Anti-Slop 0.7.1,
 field by field. Field names and rules are from Google's developer documentation
 at developer.chrome.com/docs/webstore, read on 2026-11-09. Where the docs show a
 dashboard label only in a screenshot, this file says so; match it to the
@@ -17,10 +17,10 @@ node scripts/package-store.mjs --ref origin/main
 
 Build from `main`, or from a tag from `v0.6.0` on. The `v0.5.0` tag predates
 the store icon: its `icons/icon-128.png` fills the whole 128x128 square, where
-later commits have the 16 px padding the store asks for. Tags before `v0.7.0`
-build the old name, x-slop-hide.
+later commits have the 16 px padding the store asks for. Tags before `v0.7.1`
+build an old name: `v0.7.0` builds Human Replies Only, earlier tags x-slop-hide.
 
-It writes `build/human-replies-only-<version>-chrome-web-store.zip` and refuses a
+It writes `build/ai-anti-slop-<version>-chrome-web-store.zip` and refuses a
 manifest with a `key`, a name over 75 or a description over 132 characters, a
 version that differs from `package.json`, and a missing or unparseable file.
 Upload that zip under **Package**.
@@ -30,13 +30,13 @@ Upload that zip under **Package**.
 **Name** and **Summary** come from `manifest.json` (`name`, `description`), so
 changing either takes a new upload:
 
-- Name: `Human Replies Only`
+- Name: `AI Anti-Slop – Hide AI spam accounts on X`
 - Summary: `Hides x.com posts by accounts on a self-updating AI-reply spam list, and can mute them on X at a capped daily pace. No X API.`
 
 **Description** (plain text; the store shows line breaks but no formatting):
 
 ```
-Human Replies Only hides posts on x.com by accounts on clankwall's public list of AI-reply spam accounts (clankwall.vogel.dev). It hides only accounts on that list or on your own lists; a reply by any other account stays, however it was written. The list refreshes every 6 hours. You can add accounts of your own, keep accounts you always want to see, and choose Show, Hide or Mute for six bots that answer when tagged, such as @grok and @AskPerplexity.
+AI Anti-Slop hides posts on x.com by accounts on clankwall's public list of AI-reply spam accounts (clankwall.vogel.dev). It hides only accounts on that list or on your own lists; a reply by any other account stays, however it was written. The list refreshes every 6 hours. You can add accounts of your own, keep accounts you always want to see, and choose Show, Hide or Mute for six bots that answer when tagged, such as @grok and @AskPerplexity.
 
 HIDING
 - A post is hidden when its author is on the list or in your Also hide box. Quotes and mentions of a listed account stay visible.
@@ -52,17 +52,17 @@ SETTINGS FILES
 - Import a settings file or a shared list. Import adds accounts and never removes any, shows what will change before it changes anything, and never turns muting on.
 
 MUTING (optional, off until you turn it on)
-- When you turn it on, Human Replies Only mutes the listed accounts, the accounts in your Also hide box and any bot you set to Mute on X, on your X account. It clicks X's own Mute item on x.com, in background tabs it opens and closes, one visit about every 1 to 4 minutes. You pick 25, 50 or 100 mutes a day: 25 runs whenever the browser is open; 50 and 100 run only while you have an x.com tab open.
+- When you turn it on, AI Anti-Slop mutes the listed accounts, the accounts in your Also hide box and any bot you set to Mute on X, on your X account. It clicks X's own Mute item on x.com, in background tabs it opens and closes, one visit about every 1 to 4 minutes. You pick 25, 50 or 100 mutes a day: 25 runs whenever the browser is open; 50 and 100 run only while you have an x.com tab open.
 - It skips accounts you follow and accounts in Always show. It never blocks, never unmutes, and does not use the X API.
 - X's rules forbid "scripting the X website" and say: "The use of these techniques may result in the permanent suspension of your account." Muting scripts x.com. Read the Muting section on the project page before you turn it on.
 
 PRIVACY
 - No account, no server, no analytics. The extension's own code makes one kind of request: it downloads the public list, without cookies. Everything it keeps stays in your browser's extension storage.
-- Privacy policy: https://github.com/StartupBros-com/human-replies-only/blob/main/PRIVACY.md
+- Privacy policy: https://github.com/StartupBros-com/ai-anti-slop/blob/main/PRIVACY.md
 
-Free and open source under the MIT license: https://github.com/StartupBros-com/human-replies-only
+Free and open source under the MIT license: https://github.com/StartupBros-com/ai-anti-slop
 
-Human Replies Only is not affiliated with, endorsed by or sponsored by X Corp. It does not run or maintain the clankwall list.
+AI Anti-Slop is not affiliated with, endorsed by or sponsored by X Corp. It does not run or maintain the clankwall list.
 ```
 
 The MUTING paragraph is the one to cut, with the muting UI, if a hide-only
@@ -103,10 +103,10 @@ Chromium, pass `--stage-root` a directory under `~/snap/chromium/common`: snap
 Chromium has its own private `/tmp` and cannot load an extension staged in the
 system one.
 
-**Official URL / homepage:** `https://github.com/StartupBros-com/human-replies-only`
+**Official URL / homepage:** `https://github.com/StartupBros-com/ai-anti-slop`
 (the manifest's `homepage_url`).
 
-**Support URL:** `https://github.com/StartupBros-com/human-replies-only/issues`
+**Support URL:** `https://github.com/StartupBros-com/ai-anti-slop/issues`
 
 ## Privacy tab
 
@@ -149,12 +149,12 @@ data is only processed or stored locally on a user's device?" and answers
 
 **Certifications:** tick every one. The docs show their wording only in a
 screenshot; they certify compliance with the Limited Use policy. All of it
-holds for Human Replies Only: it does not sell or transfer user data, does not use it
+holds for AI Anti-Slop: it does not sell or transfer user data, does not use it
 for anything outside its single purpose, does not use it for advertising or
 for creditworthiness or lending, and no person reads it.
 
 **Privacy policy URL:**
-`https://github.com/StartupBros-com/human-replies-only/blob/main/PRIVACY.md`. It
+`https://github.com/StartupBros-com/ai-anti-slop/blob/main/PRIVACY.md`. It
 carries the Limited Use statement on the project's own page.
 
 ## Distribution tab
@@ -173,11 +173,11 @@ carries the Limited Use statement on the project's own page.
 ## Test instructions tab
 
 Optional. Google says the tab is useful when an item needs restricted
-credentials for full access; seeing Human Replies Only work needs an X login, so fill
+credentials for full access; seeing AI Anti-Slop work needs an X login, so fill
 it in (no credentials are given):
 
 ```
-Human Replies Only needs no account of its own. To see hiding: log in to any X account, open a reply thread on x.com, open the extension's popup, and add the handle of one replier under Your accounts > Also hide these accounts, then Save. That reply disappears; the popup counts it; Pause hiding brings it back. Accounts on the downloaded list (shown as "N accounts on the list" in the popup) are hidden the same way.
+AI Anti-Slop needs no account of its own. To see hiding: log in to any X account, open a reply thread on x.com, open the extension's popup, and add the handle of one replier under Your accounts > Also hide these accounts, then Save. That reply disappears; the popup counts it; Pause hiding brings it back. Accounts on the downloaded list (shown as "N accounts on the list" in the popup) are hidden the same way.
 
 Muting is off by default. To turn it on, open x.com logged in, keep that tab active, open the popup and tick "Mute listed accounts on X". It then mutes at most 25, 50 or 100 accounts a day (50 and 100 only while an x.com tab is open) by clicking X's own Mute item in background tabs. It does not use the X API, block anyone or unmute anyone. Testing it mutes real accounts on the reviewer's X account; they can be unmuted at x.com/settings/muted/all.
 ```
