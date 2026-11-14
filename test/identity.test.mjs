@@ -1,6 +1,7 @@
-// What the rename to Human Replies Only (0.7.0, issue #36) left under the old
-// name on purpose. Each is how an installed copy or a saved file finds its
-// data, so renaming one would strand something users already have.
+// What the renames to Human Replies Only (0.7.0, issue #36) and AI Anti-Slop
+// (0.7.1, issue #39) left under the old name on purpose. Each is how an
+// installed copy or a saved file finds its data, so renaming one would
+// strand something users already have.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildUserscript } from '../scripts/build-userscript.mjs';
@@ -56,7 +57,7 @@ test('the userscript keeps the @name and @namespace managers know it by, and its
   // updating the one already installed.
   assert.equal(one('name'), 'x-slop-hide');
   assert.equal(one('namespace'), OLD_REPO);
-  assert.equal(one('name:en'), 'Human Replies Only');
+  assert.equal(one('name:en'), 'AI Anti-Slop');
   // Installed copies check the URL they were installed from; raw.githubusercontent.com
   // still serves the renamed repository under its old name.
   for (const key of ['downloadURL', 'updateURL']) {

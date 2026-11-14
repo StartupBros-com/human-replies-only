@@ -1,6 +1,7 @@
 # Testing
 
-How Human Replies Only (formerly x-slop-hide) has been tested, run by run. The
+How AI Anti-Slop (formerly Human Replies Only and x-slop-hide) has been
+tested, run by run. The
 README's [Development](../README.md#development) section covers the
 automated tests.
 
@@ -255,9 +256,9 @@ from `x.com/settings/muted/all`.
 
 Hiding in Brave (muting has run there, above), Tampermonkey, Violentmonkey in
 Firefox, the 6-hour refresh actually firing, reposts, and the notifications
-page. For the 0.7.0 rename: whether a userscript manager updates an installed
-0.6.x script in place (the script keeps its `@name` and `@namespace` for that)
-and shows the `@name:en` name. For muting: a bot row set to **Mute on X** and accounts from **Also hide
+page. For the 0.7.0 and 0.7.1 renames: whether a userscript manager updates an
+installed 0.6.x or 0.7.0 script in place (the script keeps its `@name` and
+`@namespace` for that) and shows the `@name:en` name. For muting: a bot row set to **Mute on X** and accounts from **Also hide
 these accounts** on real x.com, more than two days in a row, how X responds to
 this pace over weeks, and X in other languages. For export and import: Brave
 and branded Chrome, a file picked from a desktop file dialog (the run above set

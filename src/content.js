@@ -1,4 +1,4 @@
-// Human Replies Only content script: hides x.com timeline cells whose post author is
+// AI Anti-Slop content script: hides x.com timeline cells whose post author is
 // on the list. In the user's own tabs it never clicks anything.
 //
 // Muting, when the user has turned it on, happens only in a tab the background
@@ -184,7 +184,7 @@
     const bar = document.createElement('div');
     bar.setAttribute(BAR, '');
     bar.setAttribute('role', 'group');
-    bar.setAttribute('aria-label', 'Human Replies Only label');
+    bar.setAttribute('aria-label', 'AI Anti-Slop label');
     for (const [label, text] of [
       ['slop', 'Slop'],
       ['not_slop', 'Not slop'],
